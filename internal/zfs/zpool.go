@@ -12,16 +12,16 @@ import (
 )
 
 type Pool struct {
-	Name	string	`json:"name"`
-	Health	string	`json:"health"`
+	Name   string `json:"name"`
+	Health string `json:"health"`
 }
 
 type Result int
 
 const (
-	Healthy	Result = 0
-	Unhealthy	Result = 2
-	Unknown	Result = 3
+	Healthy   Result = 0
+	Unhealthy Result = 2
+	Unknown   Result = 3
 )
 
 func (r Result) Label() string {
@@ -58,7 +58,7 @@ func Assess(pools []Pool) Result {
 // ParseList handles the tab-separated output of "zpool list -H -o name,health".
 func ParseList(output []byte) ([]Pool, error) {
 	scan := bufio.NewScanner(strings.NewReader(string(output)))
-	scan.Buffer(make([]byte, 4096), 1024*1024)
+	scan.Buffer(make([]byte, 4096), 1024 * 1024)
 	var pools []Pool
 	seen := make(map[string]bool)
 	for scan.Scan() {

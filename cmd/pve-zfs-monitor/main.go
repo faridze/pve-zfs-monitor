@@ -36,7 +36,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 64
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
 	defer cancel()
 	pools, err := zfs.ListPools(ctx)
 	if err != nil {
@@ -47,8 +47,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	result := zfs.Assess(pools)
 	if len(args) == 2 {
 		if err := json.NewEncoder(stdout).Encode(struct {
-			Pools	[]zfs.Pool	`json:"pools"`
-			Overall	string	`json:"overall"`
+			Pools   []zfs.Pool `json:"pools"`
+			Overall string     `json:"overall"`
 		}{pools, result.Label()}); err != nil {
 			fmt.Fprintf(stderr, "failed to encode status: %v\n", err)
 			return 3
