@@ -46,8 +46,10 @@ func isDataLeaf(n *zfs.VdevNode) bool {
 		return false
 	}
 	switch n.VdevClass {
-	case "section", "spare", "logs", "cache", "special", "pool", "mirror", "raidz", "stripe", "unknown":
+	case "section", "spare", "logs", "cache", "special", "pool", "mirror", "raidz", "stripe":
 		return false
+	case "unknown":
+		return true
 	default:
 		return true
 	}
@@ -69,6 +71,11 @@ func correlateLeaf(pool string, leaf zfs.VdevNode, inv *Inventory) MemberMapping
 	if leaf.State == "UNAVAIL" && strings.Contains(leaf.StateDetail, "was ") {
 		m.Outcome = MappingMissing
 		m.Reason = "member unavailable; former device path not used for identity"
+		return m
+	}
+	if leaf.VdevClass == "unknown" {
+		m.Outcome = MappingUnsupported
+		m.Reason = "unsupported ZFS terminal vdev class: unknown"
 		return m
 	}
 	candidates := memberPathCandidates(leaf)

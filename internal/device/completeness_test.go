@@ -21,6 +21,21 @@ func TestMappingCompletenessRequiresAllMapped(t *testing.T) {
 	}
 }
 
+func TestReportSmartCoverageIncompleteWhenMappingIncomplete(t *testing.T) {
+	collected := []DeviceHealth{
+		{DevicePath: "/dev/nvme0n1", CollectionStatus: HealthCollected},
+	}
+	if reportSmartCoverage(ReportMappingIncomplete, []string{"/dev/nvme0n1"}, collected) != ReportSmartIncomplete {
+		t.Fatal("must not claim smart_complete when mapping is incomplete")
+	}
+	if reportSmartCoverage(ReportMappingIncomplete, nil, nil) != ReportSmartIncomplete {
+		t.Fatal("mapping gaps imply incomplete overall SMART coverage")
+	}
+	if reportSmartCoverage(ReportMappingComplete, []string{"/dev/nvme0n1"}, collected) != ReportSmartComplete {
+		t.Fatal("expected complete when mapping and collection both complete")
+	}
+}
+
 func TestSmartCompletenessRequiresAllCollected(t *testing.T) {
 	expected := []string{"/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd"}
 	oneOK := []DeviceHealth{

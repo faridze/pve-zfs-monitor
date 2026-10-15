@@ -80,6 +80,46 @@ func TestCollectorMappingIncompleteWhenOneMemberMissing(t *testing.T) {
 	if report.MappingCompleteness != ReportMappingIncomplete {
 		t.Fatalf("mapping=%q mappings=%#v", report.MappingCompleteness, report.MemberMappings)
 	}
+	if report.SmartCompleteness != ReportSmartIncomplete {
+		t.Fatalf("smart=%q must not be complete when a mirror member is missing", report.SmartCompleteness)
+	}
+}
+
+func TestCollectorMirrorOneMappedCollectedStillSmartIncomplete(t *testing.T) {
+	topo, err := zfs.ParseStatus(loadZFSFixture("mirror_dev_partitions.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &stubRunner{handlers: map[string]func([]string) (cmdrun.Output, error){
+		LsblkPath: func([]string) (cmdrun.Output, error) {
+			return cmdrun.Output{Stdout: loadFixture("lsblk_nvme_one_disk.json")}, nil
+		},
+		SmartctlPath: func([]string) (cmdrun.Output, error) {
+			return cmdrun.Output{Stdout: loadFixture("smartctl_nvme_healthy.json")}, nil
+		},
+	}}
+	byID, _ := ParseByIDLines(strings.Split(string(loadFixture("byid_nvme_mirror.txt")), "\n"))
+	inv, _ := ParseLsblkJSON(loadFixture("lsblk_nvme_one_disk.json"))
+	ApplyByIDLinks(inv, byID)
+	c := &Collector{
+		Runner:          runner,
+		TopologyCollect: func(context.Context) (*zfs.TopologyReport, error) { return topo, nil },
+		ByIDReader:      func(string) (map[string]string, error) { return byID, nil },
+		DeviceVerifier:  stubVerifierFromInventory(inv),
+	}
+	report, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.MappingCompleteness != ReportMappingIncomplete {
+		t.Fatalf("mapping=%q", report.MappingCompleteness)
+	}
+	if len(report.DeviceHealth) != 1 || report.DeviceHealth[0].CollectionStatus != HealthCollected {
+		t.Fatalf("expected one successful SMART collection: %#v", report.DeviceHealth)
+	}
+	if report.SmartCompleteness != ReportSmartIncomplete {
+		t.Fatalf("smart=%q", report.SmartCompleteness)
+	}
 }
 
 func TestSmartctlExit13WithoutPermissionTextIsNotPermissionDenied(t *testing.T) {

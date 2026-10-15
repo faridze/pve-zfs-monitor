@@ -56,23 +56,19 @@ func (c *Collector) Collect(ctx context.Context) (*DeviceReport, error) {
 	}
 	report.MappingCompleteness = mappingCompleteness(report.MemberMappings)
 	healthPaths := uniqueMappedPaths(report.MemberMappings)
-	if len(healthPaths) == 0 {
-		report.SmartCompleteness = ReportSmartNotAttempted
-	} else {
-		for _, path := range healthPaths {
-			if ctx.Err() != nil {
-				report.DeviceHealth = append(report.DeviceHealth, DeviceHealth{
-					DevicePath:       path,
-					CollectionStatus: HealthNotAttempted,
-					CollectionDetail: ctx.Err().Error(),
-				})
-				continue
-			}
-			h := c.collectSmart(ctx, path, inv)
-			report.DeviceHealth = append(report.DeviceHealth, h)
+	for _, path := range healthPaths {
+		if ctx.Err() != nil {
+			report.DeviceHealth = append(report.DeviceHealth, DeviceHealth{
+				DevicePath:       path,
+				CollectionStatus: HealthNotAttempted,
+				CollectionDetail: ctx.Err().Error(),
+			})
+			continue
 		}
-		report.SmartCompleteness = smartCompleteness(healthPaths, report.DeviceHealth)
+		h := c.collectSmart(ctx, path, inv)
+		report.DeviceHealth = append(report.DeviceHealth, h)
 	}
+	report.SmartCompleteness = reportSmartCoverage(report.MappingCompleteness, healthPaths, report.DeviceHealth)
 	return report, nil
 }
 
@@ -96,6 +92,16 @@ func mappingCompleteness(mappings []MemberMapping) string {
 		}
 	}
 	return ReportMappingComplete
+}
+
+// reportSmartCoverage reflects host-wide device monitoring completeness, not per-disk health verdicts.
+// When any ZFS member is not fully mapped, overall SMART coverage cannot be complete even if mapped
+// targets were collected successfully.
+func reportSmartCoverage(mappingStatus string, expectedPaths []string, health []DeviceHealth) string {
+	if mappingStatus != ReportMappingComplete {
+		return ReportSmartIncomplete
+	}
+	return smartCompleteness(expectedPaths, health)
 }
 
 func smartCompleteness(expectedPaths []string, health []DeviceHealth) string {
