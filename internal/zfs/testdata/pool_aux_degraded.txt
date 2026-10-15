@@ -1,0 +1,15 @@
+  pool: tank
+ state: DEGRADED
+  scan: none requested
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	tank        DEGRADED     0     0     0
+	  mirror-0  ONLINE       0     0     0
+	    sda     ONLINE       0     0     0
+	    sdb     ONLINE       0     0     0
+
+spares
+	  sdc       UNAVAIL      0     0     0  cannot open
+
+errors: No known data errors

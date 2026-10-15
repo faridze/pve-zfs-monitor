@@ -242,7 +242,6 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	rows := make([]configRow, 0)
 	minDepth := -1
 	step := 0
-	var sectionBaseDepth = -1
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
 		if trim == "" {
@@ -257,9 +256,9 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 				depth:     measureDepth(line),
 				isSection: true,
 				node: VdevNode{
-					Name:      section,
-					VdevClass: auxSectionClass(section),
-					State:     "ONLINE",
+					Name:          section,
+					VdevClass:     auxSectionClass(section),
+					StateObserved: false,
 				},
 			})
 			continue
@@ -276,20 +275,27 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	if len(rows) == 0 {
 		return nil, issues, errors.New("config table empty")
 	}
+	dataDepths := make([]int, 0, len(rows))
 	depths := make([]int, 0, len(rows))
 	for _, r := range rows {
 		if r.isSection {
-			depths = append(depths, 0)
+			depths = append(depths, -1)
 			continue
 		}
-		depths = append(depths, r.depth-minDepth)
+		rel := r.depth - minDepth
+		dataDepths = append(dataDepths, rel)
+		depths = append(depths, rel)
 	}
-	step = detectIndentStep(depths)
+	step = detectIndentStep(dataDepths)
 	if step <= 0 {
 		step = 1
 	}
 	levels := make([]int, len(rows))
 	for i, d := range depths {
+		if d < 0 {
+			levels[i] = -1
+			continue
+		}
 		if d%step != 0 {
 			issues = append(issues, fmt.Sprintf("ambiguous indent on vdev %q", rows[i].node.Name))
 		}
@@ -297,7 +303,10 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	}
 	var root *VdevNode
 	stack := make([]*VdevNode, 0)
-	var activeSection *VdevNode
+	inSection := false
+	sectionBaseDepth := -1
+	auxMinDepth := -1
+	auxRelDepths := make([]int, 0, 8)
 	for i, row := range rows {
 		node := row.node
 		lvl := levels[i]
@@ -307,17 +316,43 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 			}
 			node.VdevClass = auxSectionClass(node.Name)
 			root.Children = append(root.Children, node)
-			activeSection = &root.Children[len(root.Children)-1]
+			sectionNode := &root.Children[len(root.Children)-1]
+			stack = []*VdevNode{root, sectionNode}
+			inSection = true
 			sectionBaseDepth = row.depth
+			auxMinDepth = -1
+			auxRelDepths = auxRelDepths[:0]
 			continue
 		}
-		if activeSection != nil && row.depth > sectionBaseDepth {
-			node.VdevClass = classifyVdev(node.Name, 2)
-			activeSection.Children = append(activeSection.Children, node)
+		if inSection {
+			if row.depth <= sectionBaseDepth {
+				return nil, issues, fmt.Errorf("ambiguous auxiliary hierarchy near %q", node.Name)
+			}
+			if auxMinDepth < 0 {
+				auxMinDepth = row.depth
+			}
+			rel := row.depth - auxMinDepth
+			auxRelDepths = append(auxRelDepths, rel)
+			auxStep := detectIndentStep(auxRelDepths)
+			if auxStep <= 0 {
+				auxStep = 1
+			}
+			if rel%auxStep != 0 {
+				issues = append(issues, fmt.Sprintf("ambiguous auxiliary indent on %q", node.Name))
+			}
+			auxLevel := rel / auxStep
+			parentIdx := auxLevel + 1
+			if parentIdx >= len(stack) {
+				return nil, issues, fmt.Errorf("invalid auxiliary depth for %q", node.Name)
+			}
+			node.VdevClass = classifyVdev(node.Name, auxLevel+1)
+			parent := stack[parentIdx]
+			parent.Children = append(parent.Children, node)
+			child := &parent.Children[len(parent.Children)-1]
+			stack = stack[:parentIdx+1]
+			stack = append(stack, child)
 			continue
 		}
-		activeSection = nil
-		sectionBaseDepth = -1
 		node.VdevClass = classifyVdev(node.Name, lvl)
 		if lvl == 0 {
 			if root != nil {
@@ -379,9 +414,10 @@ func parseConfigLine(line string) (int, VdevNode, error) {
 	parts := strings.Fields(content)
 	if len(parts) == 2 && isVdevState(parts[1]) {
 		return depth, VdevNode{
-			Name:      parts[0],
-			State:     parts[1],
-			VdevClass: classifyVdev(parts[0], 1),
+			Name:          parts[0],
+			State:         parts[1],
+			StateObserved: true,
+			VdevClass:     classifyVdev(parts[0], 1),
 		}, nil
 	}
 	if len(parts) < 5 {
@@ -407,7 +443,7 @@ func parseConfigLine(line string) (int, VdevNode, error) {
 	read, readOK := parseCounterToken(parts[counterStart])
 	write, writeOK := parseCounterToken(parts[counterStart+1])
 	cksum, cksumOK := parseCounterToken(parts[counterStart+2])
-	node := VdevNode{Name: name, State: state, StateDetail: detail}
+	node := VdevNode{Name: name, State: state, StateDetail: detail, StateObserved: true}
 	if readOK {
 		node.ReadErrors = read
 	}
@@ -491,6 +527,8 @@ func classifyVdev(name string, level int) string {
 		return "raidz"
 	case strings.HasPrefix(lower, "raidz"):
 		return "raidz"
+	case strings.HasPrefix(lower, "draid"):
+		return "unknown"
 	case strings.HasPrefix(lower, "spare"):
 		return "spare"
 	case strings.HasPrefix(lower, "special"):
@@ -514,6 +552,7 @@ func (r *TopologyReport) MarkListHealthUnverified(reason string) {
 		r.Pools[i].ListHealthStatus = ListHealthUnverified
 		r.Pools[i].ParseIssues = append(r.Pools[i].ParseIssues, reason)
 	}
+	r.ListComparisonStatus = ReportListComparisonUnverified
 }
 
 // EnrichListHealth compares status pools with zpool list in both directions.
@@ -546,4 +585,35 @@ func (r *TopologyReport) EnrichListHealth(list []Pool) {
 				fmt.Sprintf("pool %q present in zpool list but missing from zpool status", p.Name))
 		}
 	}
+	r.ComputeListComparisonStatus()
+}
+
+// ComputeListComparisonStatus summarizes cross-source pool completeness.
+func (r *TopologyReport) ComputeListComparisonStatus() {
+	if len(r.Pools) == 0 {
+		r.ListComparisonStatus = ReportListComparisonUnverified
+		return
+	}
+	unverified := 0
+	inconsistent := 0
+	for _, pool := range r.Pools {
+		switch pool.ListHealthStatus {
+		case ListHealthUnverified, "":
+			unverified++
+		case ListHealthVerifiedInconsistent:
+			inconsistent++
+		}
+	}
+	if unverified > 0 {
+		r.ListComparisonStatus = ReportListComparisonUnverified
+		return
+	}
+	if inconsistent > 0 || len(r.ReportIssues) > 0 {
+		r.ListComparisonStatus = ReportListComparisonIncomplete
+		if inconsistent > 0 {
+			r.ListComparisonStatus = ReportListComparisonInconsistent
+		}
+		return
+	}
+	r.ListComparisonStatus = ReportListComparisonComplete
 }

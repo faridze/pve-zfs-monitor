@@ -30,13 +30,32 @@ func validatePoolStructure(poolName string, root *VdevNode) error {
 }
 
 func validateVdevTree(node *VdevNode) error {
-	if node.VdevClass == "mirror" && len(node.Children) < 2 {
-		return fmt.Errorf("mirror %q has fewer than two members", node.Name)
+	if node.VdevClass == "mirror" && len(node.Children) == 0 {
+		return fmt.Errorf("mirror %q has no members", node.Name)
+	}
+	if err := validateMemberCounters(node); err != nil {
+		return err
 	}
 	for i := range node.Children {
 		if err := validateVdevTree(&node.Children[i]); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateMemberCounters(node *VdevNode) error {
+	if !node.StateObserved {
+		return nil
+	}
+	if node.State == "AVAIL" {
+		return nil
+	}
+	if node.VdevClass == "section" {
+		return nil
+	}
+	if node.ReadErrors == nil || node.WriteErrors == nil || node.CksumErrors == nil {
+		return fmt.Errorf("incomplete error counters for vdev %q", node.Name)
 	}
 	return nil
 }
@@ -75,6 +94,6 @@ func auxSectionClass(name string) string {
 	case "special":
 		return "special"
 	default:
-		return "unknown"
+		return "section"
 	}
 }

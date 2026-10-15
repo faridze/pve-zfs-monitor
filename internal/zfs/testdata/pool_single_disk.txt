@@ -1,0 +1,10 @@
+  pool: solo
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	solo        ONLINE       0     0     0
+	  sda       ONLINE       0     0     0
+
+errors: No known data errors

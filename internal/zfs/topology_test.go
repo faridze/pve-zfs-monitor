@@ -92,8 +92,8 @@ func TestParseAuxiliarySpares(t *testing.T) {
 			break
 		}
 	}
-	if spares == nil || spares.VdevClass != "spare" {
-		t.Fatalf("missing spares section: %#v", root.Children)
+	if spares == nil || spares.VdevClass != "spare" || spares.StateObserved {
+		t.Fatalf("missing spares section: %#v", spares)
 	}
 	if len(spares.Children) != 2 {
 		t.Fatalf("spares children: %#v", spares.Children)
@@ -173,7 +173,7 @@ func TestParseDuplicatePoolRejected(t *testing.T) {
 
 func TestParseMirrorSingleMemberRejected(t *testing.T) {
 	_, err := ParseStatus(loadFixture("mirror_single_member.txt"))
-	if err == nil || !strings.Contains(err.Error(), "fewer than two members") {
+	if err == nil || !strings.Contains(err.Error(), "no members") {
 		t.Fatalf("expected mirror validation error, got %v", err)
 	}
 }

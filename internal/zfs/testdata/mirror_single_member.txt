@@ -6,6 +6,5 @@ config:
 	NAME        STATE     READ WRITE CKSUM
 	bad         DEGRADED     0     0     0
 	  mirror-0  DEGRADED     0     0     0
-	    sda       ONLINE       0     0     0
 
 errors: No known data errors
