@@ -58,7 +58,7 @@ func Assess(pools []Pool) Result {
 // ParseList handles the tab-separated output of "zpool list -H -o name,health".
 func ParseList(output []byte) ([]Pool, error) {
 	scan := bufio.NewScanner(strings.NewReader(string(output)))
-	scan.Buffer(make([]byte, 4096), 1024 * 1024)
+	scan.Buffer(make([]byte, 4096), 1024*1024)
 	var pools []Pool
 	seen := make(map[string]bool)
 	for scan.Scan() {
