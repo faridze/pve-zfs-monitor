@@ -1,0 +1,15 @@
+{
+  "blockdevices": [
+    {
+      "name": "sda",
+      "kname": "sda",
+      "path": "/dev/sda",
+      "type": "disk",
+      "size": "1000000000000",
+      "model": "SATA_DISK",
+      "serial": "SINGLE01",
+      "wwn": "wwn-0xabc",
+      "tran": "sata"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "blockdevices": [
+    {"name": "sda", "kname": "sda", "path": "/dev/sda", "type": "disk", "size": "4000000000000", "model": "SAS", "serial": "RZ1", "tran": "sas"},
+    {"name": "sdb", "kname": "sdb", "path": "/dev/sdb", "type": "disk", "size": "4000000000000", "model": "SAS", "serial": "RZ2", "tran": "sas"},
+    {"name": "sdc", "kname": "sdc", "path": "/dev/sdc", "type": "disk", "size": "4000000000000", "model": "SAS", "serial": "RZ3", "tran": "sas"}
+  ]
+}
