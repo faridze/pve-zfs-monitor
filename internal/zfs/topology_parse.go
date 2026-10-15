@@ -100,12 +100,17 @@ func parsePoolBlock(block string) (PoolTopology, error) {
 	}
 	configLines := lines[configStart:]
 	errorsIdx := len(configLines)
+	foundErrorsSection := pool.ErrorsLine != ""
 	for i, line := range configLines {
 		if strings.HasPrefix(strings.TrimSpace(line), "errors:") {
 			errorsIdx = i
 			pool.ErrorsLine = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "errors:"))
+			foundErrorsSection = true
 			break
 		}
+	}
+	if !foundErrorsSection {
+		return PoolTopology{}, fmt.Errorf("pool %q missing errors section", pool.Name)
 	}
 	configLines = configLines[:errorsIdx]
 	root, issues, err := parseConfigTree(configLines)
@@ -275,16 +280,25 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	if len(rows) == 0 {
 		return nil, issues, errors.New("config table empty")
 	}
+	firstSectionIdx := len(rows)
+	for i, r := range rows {
+		if r.isSection {
+			firstSectionIdx = i
+			break
+		}
+	}
 	dataDepths := make([]int, 0, len(rows))
 	depths := make([]int, 0, len(rows))
-	for _, r := range rows {
+	for i, r := range rows {
 		if r.isSection {
 			depths = append(depths, -1)
 			continue
 		}
 		rel := r.depth - minDepth
-		dataDepths = append(dataDepths, rel)
 		depths = append(depths, rel)
+		if i < firstSectionIdx {
+			dataDepths = append(dataDepths, rel)
+		}
 	}
 	step = detectIndentStep(dataDepths)
 	if step <= 0 {
@@ -292,12 +306,16 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	}
 	levels := make([]int, len(rows))
 	for i, d := range depths {
-		if d < 0 {
+		if rows[i].isSection {
 			levels[i] = -1
 			continue
 		}
+		if i > firstSectionIdx {
+			levels[i] = -2
+			continue
+		}
 		if d%step != 0 {
-			issues = append(issues, fmt.Sprintf("ambiguous indent on vdev %q", rows[i].node.Name))
+			return nil, issues, fmt.Errorf("ambiguous indent on vdev %q", rows[i].node.Name)
 		}
 		levels[i] = d / step
 	}
@@ -338,7 +356,7 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 				auxStep = 1
 			}
 			if rel%auxStep != 0 {
-				issues = append(issues, fmt.Sprintf("ambiguous auxiliary indent on %q", node.Name))
+				return nil, issues, fmt.Errorf("ambiguous auxiliary indent on %q", node.Name)
 			}
 			auxLevel := rel / auxStep
 			parentIdx := auxLevel + 1
@@ -420,6 +438,15 @@ func parseConfigLine(line string) (int, VdevNode, error) {
 			VdevClass:     classifyVdev(parts[0], 1),
 		}, nil
 	}
+	if len(parts) >= 2 && isCounterlessSpareState(parts[1]) {
+		return depth, VdevNode{
+			Name:          parts[0],
+			State:         parts[1],
+			StateDetail:   strings.Join(parts[2:], " "),
+			StateObserved: true,
+			VdevClass:     classifyVdev(parts[0], 1),
+		}, nil
+	}
 	if len(parts) < 5 {
 		return 0, VdevNode{}, fmt.Errorf("malformed config row: %q", strings.TrimSpace(line))
 	}
@@ -467,11 +494,15 @@ func findCounterStart(parts []string) (int, bool) {
 
 func isVdevState(s string) bool {
 	switch s {
-	case "ONLINE", "DEGRADED", "FAULTED", "OFFLINE", "UNAVAIL", "REMOVED", "SUSPENDED", "UNHEALTHY", "AVAIL":
+	case "ONLINE", "DEGRADED", "FAULTED", "OFFLINE", "UNAVAIL", "REMOVED", "SUSPENDED", "UNHEALTHY", "AVAIL", "INUSE":
 		return true
 	default:
 		return false
 	}
+}
+
+func isCounterlessSpareState(s string) bool {
+	return s == "AVAIL" || s == "INUSE"
 }
 
 func measureDepth(line string) int {

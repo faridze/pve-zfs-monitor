@@ -48,7 +48,7 @@ func validateMemberCounters(node *VdevNode) error {
 	if !node.StateObserved {
 		return nil
 	}
-	if node.State == "AVAIL" {
+	if node.State == "AVAIL" || node.State == "INUSE" {
 		return nil
 	}
 	if node.VdevClass == "section" {
