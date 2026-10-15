@@ -43,6 +43,9 @@ func TestCollectorEndToEndSynthetic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if report.InventoryCompleteness != ReportInventoryComplete {
+		t.Fatalf("completeness=%q", report.InventoryCompleteness)
+	}
 	if len(report.MemberMappings) < 2 {
 		t.Fatalf("mappings: %#v", report.MemberMappings)
 	}
@@ -52,6 +55,34 @@ func TestCollectorEndToEndSynthetic(t *testing.T) {
 	for _, h := range report.DeviceHealth {
 		if h.CollectionStatus == HealthCollected && h.SmartPassed == nil {
 			t.Fatalf("collected health without smart_passed: %#v", h)
+		}
+	}
+}
+
+func TestCollectorInventoryFailurePreservesMembers(t *testing.T) {
+	topo, _ := zfs.ParseStatus(loadZFSFixture("mirror_dev_partitions.txt"))
+	runner := &stubRunner{handlers: map[string]func([]string) (cmdrun.Output, error){
+		LsblkPath: func([]string) (cmdrun.Output, error) {
+			return cmdrun.Output{}, &cmdrun.Error{Kind: cmdrun.NotAvailable, Path: LsblkPath}
+		},
+	}}
+	c := &Collector{
+		Runner:          runner,
+		TopologyCollect: func(context.Context) (*zfs.TopologyReport, error) { return topo, nil },
+	}
+	report, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.InventoryCompleteness != ReportInventoryFailed {
+		t.Fatalf("completeness=%q", report.InventoryCompleteness)
+	}
+	if len(report.MemberMappings) < 2 {
+		t.Fatalf("expected unresolved members preserved: %d", len(report.MemberMappings))
+	}
+	for _, m := range report.MemberMappings {
+		if m.Outcome == MappingMapped {
+			t.Fatalf("should not map without inventory: %#v", m)
 		}
 	}
 }
@@ -92,7 +123,8 @@ func TestCollectorSmartctlNonzeroExitWithJSON(t *testing.T) {
 		},
 	}}
 	c := &Collector{Runner: runner}
-	h := c.collectSmart(context.Background(), "/dev/nvme0n1")
+	inv := buildTestInventory(t)
+	h := c.collectSmart(context.Background(), "/dev/nvme0n1", inv)
 	if h.CollectionStatus != HealthCollected {
 		t.Fatalf("status=%q", h.CollectionStatus)
 	}

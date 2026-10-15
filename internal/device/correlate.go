@@ -10,8 +10,11 @@ import (
 
 // CorrelateTopology maps ZFS leaf members to inventory devices.
 func CorrelateTopology(topo *zfs.TopologyReport, inv *Inventory) []MemberMapping {
-	if topo == nil || inv == nil {
+	if topo == nil {
 		return nil
+	}
+	if inv == nil {
+		inv = &Inventory{Devices: make(map[string]PhysicalIdentity), ByIDIndex: make(map[string]string), PhysicalIndex: make(map[string][]string)}
 	}
 	var out []MemberMapping
 	for _, pool := range topo.Pools {
@@ -132,25 +135,18 @@ func memberPathCandidates(leaf zfs.VdevNode) []string {
 		return out
 	}
 	if strings.HasPrefix(name, "/dev/") {
-		out = appendUnique(out, normalizeMemberPath(name))
+		p := normalizeMemberPath(name)
+		out = appendUnique(out, p)
+		if byID, ok := ByIDLinkName(p); ok {
+			out = appendUnique(out, "by-id:"+byID)
+		}
 	} else if isKernelBlockName(name) {
 		out = appendUnique(out, "/dev/"+name)
 	}
-	if strings.HasPrefix(name, "nvme-") || strings.HasPrefix(name, "wwn-") || strings.HasPrefix(name, "ata-") {
+	if strings.HasPrefix(name, "nvme-") || strings.HasPrefix(name, "wwn-") || strings.HasPrefix(name, "ata-") || strings.HasPrefix(name, "scsi-") {
 		out = appendUnique(out, "by-id:"+name)
 	}
 	return out
-}
-
-func isKernelBlockName(name string) bool {
-	if name == "" || strings.Contains(name, "/") {
-		return false
-	}
-	// sd*, nvme*n*, vd*, etc.
-	if strings.HasPrefix(name, "sd") || strings.HasPrefix(name, "vd") || strings.HasPrefix(name, "hd") {
-		return true
-	}
-	return strings.HasPrefix(name, "nvme") && strings.Contains(name, "n")
 }
 
 func normalizeMemberPath(p string) string {
@@ -164,13 +160,20 @@ func normalizeMemberPath(p string) string {
 func resolveCandidate(c string, inv *Inventory) (string, []MappingEvidence, bool) {
 	if strings.HasPrefix(c, "by-id:") {
 		name := strings.TrimPrefix(c, "by-id:")
-		target, ok := inv.ByIDIndex[name]
-		if !ok {
-			return "", nil, false
-		}
-		return resolveToInventoryPath(target, inv, MappingEvidence{Source: "by-id", Detail: name, Strength: "high"})
+		return resolveByIDName(name, inv)
+	}
+	if byID, ok := ByIDLinkName(c); ok {
+		return resolveByIDName(byID, inv)
 	}
 	return resolveToInventoryPath(c, inv, MappingEvidence{Source: "member_path", Detail: c, Strength: "medium"})
+}
+
+func resolveByIDName(name string, inv *Inventory) (string, []MappingEvidence, bool) {
+	target, ok := inv.ByIDIndex[name]
+	if !ok {
+		return "", nil, false
+	}
+	return resolveToInventoryPath(target, inv, MappingEvidence{Source: "by-id", Detail: name, Strength: "high"})
 }
 
 func resolveToInventoryPath(path string, inv *Inventory, ev MappingEvidence) (string, []MappingEvidence, bool) {

@@ -35,9 +35,10 @@ func (c *Collector) Collect(ctx context.Context) (*DeviceReport, error) {
 	}
 	inv, invErr := c.collectInventory(ctx)
 	report := &DeviceReport{
-		CollectedAt:    time.Now().UTC().Format(time.RFC3339),
-		TopologySource: "zpool status -v",
-		MemberMappings: CorrelateTopology(topo, inv),
+		CollectedAt:           time.Now().UTC().Format(time.RFC3339),
+		TopologySource:        "zpool status -v",
+		InventoryCompleteness: ReportInventoryComplete,
+		MemberMappings:        CorrelateTopology(topo, inv),
 	}
 	if inv != nil {
 		report.InventoryIssues = inv.Issues
@@ -47,10 +48,14 @@ func (c *Collector) Collect(ctx context.Context) (*DeviceReport, error) {
 	}
 	if invErr != nil {
 		report.ReportIssues = append(report.ReportIssues, invErr.Error())
+		report.InventoryCompleteness = ReportInventoryFailed
+		report.MemberMappings = CorrelateTopology(topo, nil)
+	} else if inv == nil || len(inv.Devices) == 0 {
+		report.InventoryCompleteness = ReportInventoryIncomplete
 	}
 	healthPaths := uniqueMappedPaths(report.MemberMappings)
 	for _, path := range healthPaths {
-		h := c.collectSmart(ctx, path)
+		h := c.collectSmart(ctx, path, inv)
 		report.DeviceHealth = append(report.DeviceHealth, h)
 	}
 	return report, nil
@@ -59,7 +64,7 @@ func (c *Collector) Collect(ctx context.Context) (*DeviceReport, error) {
 func (c *Collector) collectInventory(ctx context.Context) (*Inventory, error) {
 	out, err := c.Runner.Run(ctx, LsblkPath, LsblkArgs)
 	if err != nil {
-		return &Inventory{Devices: make(map[string]PhysicalIdentity)}, mapInventoryError(err)
+		return nil, mapInventoryError(err)
 	}
 	inv, err := ParseLsblkJSON(out.Stdout)
 	if err != nil {
@@ -84,9 +89,9 @@ func mapInventoryError(err error) error {
 	return fmt.Errorf("inventory: %w", err)
 }
 
-func (c *Collector) collectSmart(ctx context.Context, devicePath string) DeviceHealth {
+func (c *Collector) collectSmart(ctx context.Context, devicePath string, inv *Inventory) DeviceHealth {
 	h := DeviceHealth{DevicePath: devicePath, CollectionStatus: HealthNotAttempted}
-	if err := ValidateDevicePath(devicePath); err != nil {
+	if err := ValidateDevicePathInInventory(devicePath, inv); err != nil {
 		h.CollectionStatus = HealthFailed
 		h.CollectionDetail = err.Error()
 		return h
@@ -109,13 +114,13 @@ func (c *Collector) collectSmart(ctx context.Context, devicePath string) DeviceH
 					parsed, perr := ParseSmartctlJSON(runErr.Stdout, runErr.ExitCode)
 					if perr == nil {
 						parsed.DevicePath = devicePath
-						parsed.CollectionStatus = HealthCollected
-						if SmartctlExitIndicatesFailure(runErr.ExitCode) && parsed.SmartPassed == nil {
-							f := false
-							parsed.SmartPassed = &f
-						}
-						return parsed
+						return finalizeSmartHealth(parsed, runErr.ExitCode)
 					}
+				}
+				if SmartctlExitIndicatesOperationalError(runErr.ExitCode) {
+					h.CollectionStatus = HealthFailed
+					h.CollectionDetail = runErr.Error()
+					return h
 				}
 				if runErr.ExitCode == 13 || strings.Contains(string(runErr.Stderr), "Permission denied") {
 					h.CollectionStatus = HealthPermissionDenied
@@ -142,8 +147,15 @@ func (c *Collector) collectSmart(ctx context.Context, devicePath string) DeviceH
 		return h
 	}
 	parsed.DevicePath = devicePath
-	parsed.CollectionStatus = HealthCollected
-	return parsed
+	return finalizeSmartHealth(parsed, 0)
+}
+
+func finalizeSmartHealth(h DeviceHealth, exitCode int) DeviceHealth {
+	h.CollectionStatus = HealthCollected
+	if exitCode != 0 && h.ToolExitCode == nil {
+		h.ToolExitCode = &exitCode
+	}
+	return h
 }
 
 func uniqueMappedPaths(mappings []MemberMapping) []string {

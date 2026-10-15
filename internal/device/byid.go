@@ -48,17 +48,25 @@ func ApplyByIDLinks(inv *Inventory, byID map[string]string) {
 		inv.ByIDIndex = make(map[string]string)
 	}
 	for name, target := range byID {
+		if prev, exists := inv.ByIDIndex[name]; exists && prev != target {
+			inv.Issues = append(inv.Issues, fmt.Sprintf("conflicting by-id alias %q: %s vs %s", name, prev, target))
+		}
 		inv.ByIDIndex[name] = target
+		attached := false
 		if id, ok := inv.Devices[target]; ok {
 			id.ByIDLinks = appendUnique(id.ByIDLinks, name)
 			inv.Devices[target] = id
+			attached = true
 		}
-		// Partition symlink may point to partition; also attach to parent disk if present.
 		if parent := partitionParentPath(target); parent != "" {
 			if pid, ok := inv.Devices[parent]; ok {
 				pid.ByIDLinks = appendUnique(pid.ByIDLinks, name)
 				inv.Devices[parent] = pid
+				attached = true
 			}
+		}
+		if !attached {
+			inv.Issues = append(inv.Issues, fmt.Sprintf("by-id %q -> %q not in inventory", name, target))
 		}
 	}
 }

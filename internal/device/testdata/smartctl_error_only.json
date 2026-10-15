@@ -1,0 +1,5 @@
+{
+  "messages": [
+    { "string": "Unable to detect device type", "severity": "error" }
+  ]
+}

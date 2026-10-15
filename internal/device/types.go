@@ -126,13 +126,20 @@ type DeviceHealth struct {
 	ToolExitCode        *int                   `json:"tool_exit_code,omitempty"`
 }
 
+const (
+	ReportInventoryComplete   = "inventory_complete"
+	ReportInventoryIncomplete = "inventory_incomplete"
+	ReportInventoryFailed     = "inventory_failed"
+)
+
 // DeviceReport is the top-level devices diagnostic payload.
 type DeviceReport struct {
-	CollectedAt     string             `json:"collected_at"`
-	TopologySource  string             `json:"topology_source,omitempty"`
-	InventoryIssues []string           `json:"inventory_issues,omitempty"`
-	Inventory       []PhysicalIdentity `json:"inventory,omitempty"`
-	MemberMappings  []MemberMapping    `json:"member_mappings"`
-	DeviceHealth    []DeviceHealth     `json:"device_health,omitempty"`
-	ReportIssues    []string           `json:"report_issues,omitempty"`
+	CollectedAt           string             `json:"collected_at"`
+	TopologySource        string             `json:"topology_source,omitempty"`
+	InventoryCompleteness string             `json:"inventory_completeness,omitempty"`
+	InventoryIssues       []string           `json:"inventory_issues,omitempty"`
+	Inventory             []PhysicalIdentity `json:"inventory,omitempty"`
+	MemberMappings        []MemberMapping    `json:"member_mappings"`
+	DeviceHealth          []DeviceHealth     `json:"device_health,omitempty"`
+	ReportIssues          []string           `json:"report_issues,omitempty"`
 }

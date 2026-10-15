@@ -1,0 +1,2 @@
+nvme-Samsung_SSD_990_PRO_2TB_S7KGNU0X123456 -> /dev/nvme0n1p3
+nvme-Samsung_SSD_990_PRO_2TB_S7KGNU0X654321 -> /dev/nvme1n1p3

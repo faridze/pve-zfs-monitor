@@ -3,8 +3,11 @@ package device
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+var nvmeCtrlRE = regexp.MustCompile(`^nvme(\d+)n\d+`)
 
 // LsblkPath is the fixed lsblk location on Debian/Proxmox.
 const LsblkPath = "/usr/bin/lsblk"
@@ -60,6 +63,9 @@ func ParseLsblkJSON(data []byte) (*Inventory, error) {
 			}
 		}
 	}
+	if len(tree.BlockDevices) == 0 {
+		return nil, fmt.Errorf("lsblk inventory empty")
+	}
 	walk(tree.BlockDevices, "", "")
 	return inv, nil
 }
@@ -86,8 +92,8 @@ func nodeToIdentity(n lsblkNode, parentPath, parentK string) PhysicalIdentity {
 			id.SizeBytes = &u
 		}
 	}
-	if parentK == "" && strings.HasPrefix(n.KName, "nvme") && strings.Contains(n.KName, "n") {
-		id.ControllerPath = controllerPathFromNamespace(path)
+	if strings.HasPrefix(n.KName, "nvme") {
+		id.ControllerPath, id.NVMeCtrlID = controllerPathFromNamespace(path)
 	}
 	if id.ParentPath == "" && id.ParentKernel != "" {
 		id.ParentPath = "/dev/" + id.ParentKernel
@@ -95,15 +101,17 @@ func nodeToIdentity(n lsblkNode, parentPath, parentK string) PhysicalIdentity {
 	return id
 }
 
-func controllerPathFromNamespace(path string) string {
-	// /dev/nvme0n1 -> /dev/nvme0 ; /dev/nvme0n1p2 -> /dev/nvme0
-	base := strings.TrimPrefix(path, "/dev/")
-	idx := strings.Index(base, "n")
-	if idx <= 0 {
-		return ""
+func controllerPathFromNamespace(path string) (string, string) {
+	base := strings.TrimPrefix(strings.TrimSpace(path), "/dev/")
+	if idx := strings.Index(base, "p"); idx > 0 {
+		base = base[:idx]
 	}
-	ctrl := base[:idx]
-	return "/dev/" + ctrl
+	m := nvmeCtrlRE.FindStringSubmatch(base)
+	if len(m) < 2 {
+		return "", ""
+	}
+	ctrl := "nvme" + m[1]
+	return "/dev/" + ctrl, ctrl
 }
 
 func mapBlockKind(t string) BlockKind {
@@ -135,15 +143,15 @@ func mapTransport(tran, kname string) TransportKind {
 	if strings.HasPrefix(kname, "nvme") {
 		return TransportNVMe
 	}
-	if strings.HasPrefix(kname, "sd") {
-		return TransportSATA
-	}
 	return TransportUnknown
 }
 
 func physicalKey(id PhysicalIdentity) string {
 	if id.WWN != "" {
 		return "wwn:" + strings.ToLower(id.WWN)
+	}
+	if id.Transport == TransportNVMe && id.DevicePath != "" {
+		return "nvme-ns:" + id.DevicePath
 	}
 	if id.Serial != "" && id.Model != "" {
 		return "serial:" + strings.ToLower(id.Serial) + "|" + strings.ToLower(id.Model)

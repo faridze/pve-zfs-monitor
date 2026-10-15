@@ -1,0 +1,18 @@
+{
+  "smart_status": {
+    "passed": true,
+    "status": { "string": "OK" }
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 0,
+    "temperature": 0,
+    "available_spare": 0,
+    "available_spare_threshold": 0,
+    "percentage_used": 0,
+    "media_errors": 0,
+    "num_err_log_entries": 0,
+    "power_on_hours": 0,
+    "unsafe_shutdowns": 0,
+    "power_cycles": 0
+  }
+}

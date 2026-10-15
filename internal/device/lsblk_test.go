@@ -15,6 +15,20 @@ func TestParseLsblkNVMeMirror(t *testing.T) {
 	}
 }
 
+func TestParseLsblkEmptyRejected(t *testing.T) {
+	_, err := ParseLsblkJSON([]byte(`{"blockdevices":[]}`))
+	if err == nil {
+		t.Fatal("expected empty inventory error")
+	}
+}
+
+func TestNVMeControllerPath(t *testing.T) {
+	ctrl, id := controllerPathFromNamespace("/dev/nvme0n1p3")
+	if ctrl != "/dev/nvme0" || id != "nvme0" {
+		t.Fatalf("got %q %q", ctrl, id)
+	}
+}
+
 func TestByIDDuplicatePhysicalKey(t *testing.T) {
 	inv := buildTestInventory(t)
 	if len(inv.PhysicalIndex) == 0 {

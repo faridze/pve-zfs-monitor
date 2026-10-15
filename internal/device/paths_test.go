@@ -9,7 +9,7 @@ func TestValidateDevicePathAllowlist(t *testing.T) {
 			t.Fatalf("%s: %v", p, err)
 		}
 	}
-	bad := []string{"/dev/../etc/passwd", "/tmp/foo", "/dev/foo bar"}
+	bad := []string{"/dev/../etc/passwd", "/tmp/foo", "/dev/foo bar", "/dev/null", "/dev/zero", "/dev/random"}
 	for _, p := range bad {
 		if err := ValidateDevicePath(p); err == nil {
 			t.Fatalf("expected reject %s", p)

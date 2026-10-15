@@ -20,6 +20,31 @@ func buildTestInventory(t *testing.T) *Inventory {
 	return inv
 }
 
+func TestCorrelateFullByIDPath(t *testing.T) {
+	topo, err := zfs.ParseStatus(loadZFSFixture("mirror_by_id.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv, err := ParseLsblkJSON(loadFixture("lsblk_nvme_mirror.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID, err := ParseByIDLines(strings.Split(string(loadFixture("byid_mirror_by_id.txt")), "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ApplyByIDLinks(inv, byID)
+	mapped := 0
+	for _, m := range CorrelateTopology(topo, inv) {
+		if m.Outcome == MappingMapped {
+			mapped++
+		}
+	}
+	if mapped < 2 {
+		t.Fatalf("by-id full path mapping failed: %#v", CorrelateTopology(topo, inv))
+	}
+}
+
 func TestCorrelateNVMeMirrorPartitions(t *testing.T) {
 	topo, err := zfs.ParseStatus(loadZFSFixture("mirror_dev_partitions.txt"))
 	if err != nil {
