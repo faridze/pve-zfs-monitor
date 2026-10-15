@@ -3,6 +3,7 @@ package device
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,9 @@ const SmartctlPath = "/usr/sbin/smartctl"
 var SmartctlHealthArgs = func(device string) []string {
 	return []string{"--json=o", "-a", "-d", "auto", device}
 }
+
+// NVMeDataUnitBytes is the size of one NVMe data unit per NVMe base spec (for lifetime counters).
+const NVMeDataUnitBytes = 512000
 
 type smartctlDoc struct {
 	SmartStatus                   json.RawMessage `json:"smart_status"`
@@ -54,6 +58,8 @@ type nvmeLogDoc struct {
 	PowerOnHours            *int64 `json:"power_on_hours"`
 	UnsafeShutdowns         *int64 `json:"unsafe_shutdowns"`
 	PowerCycles             *int64 `json:"power_cycles"`
+	DataUnitsRead           *int64 `json:"data_units_read"`
+	DataUnitsWritten        *int64 `json:"data_units_written"`
 }
 
 // ParseSmartctlJSON normalizes smartctl JSON; does not assume healthy on parse success alone.
@@ -71,6 +77,7 @@ func ParseSmartctlJSON(data []byte, exitCode int) (DeviceHealth, error) {
 	if exitCode != 0 {
 		code := exitCode
 		h.ToolExitCode = &code
+		h.DiagnosticFlags = SmartctlExitDiagnosticSummary(exitCode)
 	}
 	hasEvidence := false
 
@@ -135,6 +142,24 @@ func ParseSmartctlJSON(data []byte, exitCode int) (DeviceHealth, error) {
 				h.PowerCycles = &SmartNumeric{Value: nvme.PowerCycles, Normalized: "power_cycles"}
 				hasEvidence = true
 			}
+			if nvme.DataUnitsRead != nil {
+				h.ReadLifetime = &SmartNumeric{
+					Value:      nvme.DataUnitsRead,
+					Unit:       "data_units",
+					Normalized: "data_units_read",
+					Raw:        fmt.Sprintf("%d units (%d bytes/unit)", *nvme.DataUnitsRead, NVMeDataUnitBytes),
+				}
+				hasEvidence = true
+			}
+			if nvme.DataUnitsWritten != nil {
+				h.WriteLifetime = &SmartNumeric{
+					Value:      nvme.DataUnitsWritten,
+					Unit:       "data_units",
+					Normalized: "data_units_written",
+					Raw:        fmt.Sprintf("%d units (%d bytes/unit)", *nvme.DataUnitsWritten, NVMeDataUnitBytes),
+				}
+				hasEvidence = true
+			}
 		}
 	}
 
@@ -154,8 +179,10 @@ func ParseSmartctlJSON(data []byte, exitCode int) (DeviceHealth, error) {
 				switch name {
 				case "temperature_celsius", "airflow_temperature_cel":
 					if h.Temperature == nil {
-						h.Temperature = &SmartNumeric{Value: int64Ptr(int64(attr.Value)), Raw: attr.Raw.String, Unit: "celsius", Normalized: name}
-						hasEvidence = true
+						h.Temperature = parseATATemperature(attr)
+						if h.Temperature != nil {
+							hasEvidence = true
+						}
 					}
 				case "power_on_hours":
 					h.PowerOnHours = &SmartNumeric{Value: int64Ptr(attr.Raw.Value), Raw: attr.Raw.String, Unit: "hours", Normalized: name}
@@ -171,17 +198,81 @@ func ParseSmartctlJSON(data []byte, exitCode int) (DeviceHealth, error) {
 		}
 	}
 
-	if SmartctlExitIndicatesHealthFailure(exitCode) && h.SmartPassed == nil {
-		f := false
-		h.SmartPassed = &f
-		hasEvidence = true
+	if SmartctlExitIndicatesHealthFailure(exitCode) {
+		if h.SmartPassed == nil {
+			f := false
+			h.SmartPassed = &f
+			hasEvidence = true
+		}
 	}
 
 	if !hasEvidence {
 		return DeviceHealth{}, fmt.Errorf("smartctl json without usable health evidence")
 	}
-	h.CollectionStatus = HealthCollected
+	h = reconcileSmartHealthOutcome(h, exitCode)
 	return h, nil
+}
+
+func parseATATemperature(attr struct {
+	Name  string `json:"name"`
+	Value int    `json:"value"`
+	Raw   struct {
+		String string `json:"string"`
+		Value  int64  `json:"value"`
+	} `json:"raw"`
+}) *SmartNumeric {
+	raw := attr.Raw.Value
+	rawStr := strings.TrimSpace(attr.Raw.String)
+	if temp, ok := parseTemperatureFromRawString(rawStr); ok {
+		return &SmartNumeric{Value: int64Ptr(temp), Raw: rawStr, Unit: "celsius", Normalized: "ata_raw_string_temperature"}
+	}
+	if raw >= 0 && raw <= 150 {
+		return &SmartNumeric{Value: int64Ptr(raw), Raw: rawStr, Unit: "celsius", Normalized: "ata_raw_value_temperature"}
+	}
+	// Never treat normalized attribute Value as degrees Celsius.
+	return &SmartNumeric{Raw: rawStr, Normalized: attr.Name, Unit: "unknown"}
+}
+
+func parseTemperatureFromRawString(s string) (int64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if i := strings.Index(s, "("); i > 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v < 0 || v > 150 {
+		return 0, false
+	}
+	return v, true
+}
+
+func reconcileSmartHealthOutcome(h DeviceHealth, exitCode int) DeviceHealth {
+	if SmartctlExitIndicatesOperationalError(exitCode) {
+		h.CollectionStatus = HealthPartial
+		if h.CollectionDetail == "" {
+			h.CollectionDetail = "operational smartctl exit with partial JSON evidence"
+		}
+		return h
+	}
+	if h.SmartPassed != nil && *h.SmartPassed && SmartctlExitIndicatesHealthFailure(exitCode) {
+		f := false
+		h.SmartPassed = &f
+		h.CollectionStatus = HealthConflict
+		h.CollectionDetail = "smart_status.passed contradicts smartctl health failure exit bits"
+		return h
+	}
+	if SmartctlExitIndicatesHealthFailure(exitCode) || (h.SmartPassed != nil && !*h.SmartPassed) {
+		h.CollectionStatus = HealthCollected
+		return h
+	}
+	if SmartctlExitIndicatesDiagnosticEvidence(exitCode) {
+		h.CollectionStatus = HealthCollected
+		return h
+	}
+	h.CollectionStatus = HealthCollected
+	return h
 }
 
 func int64Ptr(v int64) *int64 {

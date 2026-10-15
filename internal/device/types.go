@@ -47,23 +47,27 @@ const (
 	HealthMissingTool      HealthCollectionStatus = "missing_tool"
 	HealthTimeout          HealthCollectionStatus = "timeout"
 	HealthNotAttempted     HealthCollectionStatus = "not_attempted"
+	HealthPartial          HealthCollectionStatus = "partial"
+	HealthConflict         HealthCollectionStatus = "health_conflict"
 )
 
 // PhysicalIdentity is a normalized view of one block device from host evidence.
 type PhysicalIdentity struct {
-	KernelName     string        `json:"kernel_name,omitempty"`
-	DevicePath     string        `json:"device_path,omitempty"`
-	ParentKernel   string        `json:"parent_kernel,omitempty"`
-	ParentPath     string        `json:"parent_path,omitempty"`
-	ControllerPath string        `json:"controller_path,omitempty"`
-	Kind           BlockKind     `json:"kind"`
-	Transport      TransportKind `json:"transport"`
-	Model          string        `json:"model,omitempty"`
-	Serial         string        `json:"serial,omitempty"`
-	WWN            string        `json:"wwn,omitempty"`
-	NVMeCtrlID     string        `json:"nvme_controller_id,omitempty"`
-	ByIDLinks      []string      `json:"by_id_links,omitempty"`
-	SizeBytes      *uint64       `json:"size_bytes,omitempty"`
+	KernelName       string        `json:"kernel_name,omitempty"`
+	DevicePath       string        `json:"device_path,omitempty"`
+	ParentKernel     string        `json:"parent_kernel,omitempty"`
+	ParentPath       string        `json:"parent_path,omitempty"`
+	ControllerPath   string        `json:"controller_path,omitempty"`
+	Kind             BlockKind     `json:"kind"`
+	Transport        TransportKind `json:"transport"`
+	Model            string        `json:"model,omitempty"`
+	Serial           string        `json:"serial,omitempty"`
+	WWN              string        `json:"wwn,omitempty"`
+	NVMeCtrlID       string        `json:"nvme_controller_id,omitempty"`
+	ByIDLinks        []string      `json:"by_id_links,omitempty"`
+	SizeBytes        *uint64       `json:"size_bytes,omitempty"`
+	StableHardwareID string        `json:"stable_hardware_id,omitempty"`
+	RuntimeLocator   string        `json:"runtime_locator,omitempty"`
 }
 
 // Inventory holds discovered block devices keyed by canonical device path.
@@ -124,7 +128,16 @@ type DeviceHealth struct {
 	WriteLifetime       *SmartNumeric          `json:"write_lifetime,omitempty"`
 	RawJSON             string                 `json:"raw_json,omitempty"`
 	ToolExitCode        *int                   `json:"tool_exit_code,omitempty"`
+	DiagnosticFlags     []string               `json:"diagnostic_flags,omitempty"`
 }
+
+const (
+	ReportMappingComplete   = "mapping_complete"
+	ReportMappingIncomplete = "mapping_incomplete"
+	ReportSmartComplete     = "smart_complete"
+	ReportSmartIncomplete   = "smart_incomplete"
+	ReportSmartNotAttempted = "smart_not_attempted"
+)
 
 const (
 	ReportInventoryComplete   = "inventory_complete"
@@ -137,6 +150,8 @@ type DeviceReport struct {
 	CollectedAt           string             `json:"collected_at"`
 	TopologySource        string             `json:"topology_source,omitempty"`
 	InventoryCompleteness string             `json:"inventory_completeness,omitempty"`
+	MappingCompleteness   string             `json:"mapping_completeness,omitempty"`
+	SmartCompleteness     string             `json:"smart_completeness,omitempty"`
 	InventoryIssues       []string           `json:"inventory_issues,omitempty"`
 	Inventory             []PhysicalIdentity `json:"inventory,omitempty"`
 	MemberMappings        []MemberMapping    `json:"member_mappings"`

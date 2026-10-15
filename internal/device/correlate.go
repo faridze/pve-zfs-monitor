@@ -98,11 +98,9 @@ func correlateLeaf(pool string, leaf zfs.VdevNode, inv *Inventory) MemberMapping
 		if phy, ok := inv.Devices[matches[0]]; ok {
 			m.Physical = &phy
 		}
-		// Prefer parent disk identity for partitions when correlating health.
 		if m.Physical != nil && m.Physical.Kind == BlockKindPart && m.Physical.ParentPath != "" {
-			if parent, ok := inv.Devices[m.Physical.ParentPath]; ok {
+			if parent, ok := inv.Devices[m.Physical.ParentPath]; ok && parent.DevicePath != "" {
 				dup := parent
-				dup.DevicePath = parent.DevicePath
 				m.Physical = &dup
 				m.DevicePath = parent.DevicePath
 			}

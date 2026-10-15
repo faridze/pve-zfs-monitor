@@ -76,15 +76,16 @@ func nodeToIdentity(n lsblkNode, parentPath, parentK string) PhysicalIdentity {
 		path = "/dev/" + n.KName
 	}
 	id := PhysicalIdentity{
-		KernelName:   n.KName,
-		DevicePath:   path,
-		ParentKernel: strings.TrimSpace(n.PKName),
-		ParentPath:   parentPath,
-		Kind:         mapBlockKind(n.Type),
-		Transport:    mapTransport(n.Tran, n.KName),
-		Model:        strings.TrimSpace(n.Model),
-		Serial:       strings.TrimSpace(n.Serial),
-		WWN:          strings.TrimSpace(n.WWN),
+		KernelName:     n.KName,
+		DevicePath:     path,
+		RuntimeLocator: path,
+		ParentKernel:   strings.TrimSpace(n.PKName),
+		ParentPath:     parentPath,
+		Kind:           mapBlockKind(n.Type),
+		Transport:      mapTransport(n.Tran, n.KName),
+		Model:          strings.TrimSpace(n.Model),
+		Serial:         strings.TrimSpace(n.Serial),
+		WWN:            strings.TrimSpace(n.WWN),
 	}
 	if n.Size != "" {
 		if v, err := n.Size.Int64(); err == nil && v >= 0 {
@@ -98,7 +99,15 @@ func nodeToIdentity(n lsblkNode, parentPath, parentK string) PhysicalIdentity {
 	if id.ParentPath == "" && id.ParentKernel != "" {
 		id.ParentPath = "/dev/" + id.ParentKernel
 	}
+	id.StableHardwareID = stableHardwareID(id)
 	return id
+}
+
+func stableHardwareID(id PhysicalIdentity) string {
+	if id.WWN != "" {
+		return "wwn:" + strings.ToLower(id.WWN)
+	}
+	return ""
 }
 
 func controllerPathFromNamespace(path string) (string, string) {
@@ -147,11 +156,8 @@ func mapTransport(tran, kname string) TransportKind {
 }
 
 func physicalKey(id PhysicalIdentity) string {
-	if id.WWN != "" {
-		return "wwn:" + strings.ToLower(id.WWN)
-	}
-	if id.Transport == TransportNVMe && id.DevicePath != "" {
-		return "nvme-ns:" + id.DevicePath
+	if id.StableHardwareID != "" {
+		return id.StableHardwareID
 	}
 	if id.Serial != "" && id.Model != "" {
 		return "serial:" + strings.ToLower(id.Serial) + "|" + strings.ToLower(id.Model)
@@ -159,6 +165,7 @@ func physicalKey(id PhysicalIdentity) string {
 	if id.Serial != "" {
 		return "serial:" + strings.ToLower(id.Serial)
 	}
+	// Ephemeral kernel locator — not stable across renumbering; do not dedupe across namespaces.
 	return ""
 }
 

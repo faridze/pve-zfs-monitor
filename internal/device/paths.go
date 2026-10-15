@@ -35,26 +35,6 @@ func ValidateDevicePath(path string) error {
 	return nil
 }
 
-// ValidateDevicePathInInventory ensures the path is a known block device from current inventory.
-func ValidateDevicePathInInventory(path string, inv *Inventory) error {
-	if err := ValidateDevicePath(path); err != nil {
-		return err
-	}
-	if inv == nil || len(inv.Devices) == 0 {
-		return fmt.Errorf("inventory incomplete for device validation")
-	}
-	if _, ok := inv.Devices[path]; ok {
-		return nil
-	}
-	parent := partitionParentPath(path)
-	if parent != "" {
-		if _, ok := inv.Devices[parent]; ok {
-			return nil
-		}
-	}
-	return fmt.Errorf("device path %q not in inventory", path)
-}
-
 // IsGUIDMember reports ZFS numeric GUID member identifiers.
 func IsGUIDMember(name string) bool {
 	if name == "" {

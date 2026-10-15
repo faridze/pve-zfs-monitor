@@ -55,6 +55,9 @@ func ApplyByIDLinks(inv *Inventory, byID map[string]string) {
 		attached := false
 		if id, ok := inv.Devices[target]; ok {
 			id.ByIDLinks = appendUnique(id.ByIDLinks, name)
+			if id.StableHardwareID == "" {
+				id.StableHardwareID = "by-id:" + name
+			}
 			inv.Devices[target] = id
 			attached = true
 		}

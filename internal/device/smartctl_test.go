@@ -30,6 +30,39 @@ func TestParseSmartctlPassedFalseWithoutStatusString(t *testing.T) {
 	}
 }
 
+func TestParseSmartctlPassedTrueExit8Conflict(t *testing.T) {
+	h, err := ParseSmartctlJSON(loadFixture("smartctl_passed_true_exit8.json"), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.CollectionStatus != HealthConflict {
+		t.Fatalf("status=%q detail=%q", h.CollectionStatus, h.CollectionDetail)
+	}
+	if h.SmartPassed == nil || *h.SmartPassed {
+		t.Fatalf("must not confirm healthy: %#v", h.SmartPassed)
+	}
+}
+
+func TestParseATATemperatureUsesRawNotNormalizedValue(t *testing.T) {
+	h, err := ParseSmartctlJSON(loadFixture("smartctl_ata_temperature.json"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Temperature == nil || h.Temperature.Value == nil || *h.Temperature.Value != 33 {
+		t.Fatalf("temperature: %#v", h.Temperature)
+	}
+}
+
+func TestParseSmartctlOperationalExitPartial(t *testing.T) {
+	h, err := ParseSmartctlJSON(loadFixture("smartctl_sparse_temp_exit4.json"), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.CollectionStatus != HealthPartial {
+		t.Fatalf("status=%q", h.CollectionStatus)
+	}
+}
+
 func TestParseSmartctlSparseNVMeNoFabricatedZeros(t *testing.T) {
 	h, err := ParseSmartctlJSON(loadFixture("smartctl_sparse_nvme.json"), 0)
 	if err != nil {
