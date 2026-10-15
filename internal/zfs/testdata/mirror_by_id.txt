@@ -1,0 +1,12 @@
+  pool: rpool
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME                                                STATE     READ WRITE CKSUM
+	rpool                                               ONLINE       0     0     0
+	  mirror-0                                          ONLINE       0     0     0
+	    nvme-Samsung_SSD_990_PRO_2TB_S7KGNU0X123456       ONLINE       0     0     0
+	    nvme-Samsung_SSD_990_PRO_2TB_S7KGNU0X654321       ONLINE       0     0     0
+
+errors: No known data errors

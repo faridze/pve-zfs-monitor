@@ -11,16 +11,26 @@ import (
 var zpoolStatusArgs = []string{"status", "-v"}
 
 // DefaultTopologyCollector collects topology using production zpool arguments.
-var DefaultTopologyCollector = NewTopologyCollector(cmdrun.NewOSRunner(cmdrun.DefaultLimits()))
+var DefaultTopologyCollector = NewTopologyCollectorWithList(
+	cmdrun.NewOSRunner(cmdrun.DefaultLimits()),
+	ListPools,
+)
 
 // TopologyCollector runs read-only zpool status collection.
 type TopologyCollector struct {
-	Runner cmdrun.Runner
+	Runner    cmdrun.Runner
+	ListPools func(context.Context) ([]Pool, error)
 }
 
-// NewTopologyCollector returns a topology collector with the given runner.
+// NewTopologyCollector returns a collector with the production list-health hook.
 func NewTopologyCollector(runner cmdrun.Runner) *TopologyCollector {
-	return &TopologyCollector{Runner: runner}
+	return NewTopologyCollectorWithList(runner, ListPools)
+}
+
+// NewTopologyCollectorWithList allows injecting or disabling zpool list comparison.
+// When listFn is nil, list health remains unverified.
+func NewTopologyCollectorWithList(runner cmdrun.Runner, listFn func(context.Context) ([]Pool, error)) *TopologyCollector {
+	return &TopologyCollector{Runner: runner, ListPools: listFn}
 }
 
 // CollectTopology gathers pool topology and optional list-health consistency.
@@ -38,15 +48,16 @@ func (c *TopologyCollector) Collect(ctx context.Context) (*TopologyReport, error
 	if err != nil {
 		return nil, err
 	}
-	list, listErr := DefaultCollector.ListPools(ctx)
-	if listErr == nil {
-		report.EnrichListHealth(list)
-	} else {
-		for i := range report.Pools {
-			report.Pools[i].ParseIssues = append(report.Pools[i].ParseIssues,
-				fmt.Sprintf("zpool list unavailable: %v", listErr))
-		}
+	if c.ListPools == nil {
+		report.MarkListHealthUnverified("zpool list comparison not configured")
+		return report, nil
 	}
+	list, listErr := c.ListPools(ctx)
+	if listErr != nil {
+		report.MarkListHealthUnverified(fmt.Sprintf("zpool list unavailable: %v", listErr))
+		return report, nil
+	}
+	report.EnrichListHealth(list)
 	return report, nil
 }
 

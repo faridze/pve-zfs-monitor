@@ -32,6 +32,9 @@ func ParseStatus(output []byte) (*TopologyReport, error) {
 		}
 		report.Pools = append(report.Pools, pool)
 	}
+	if err := validateTopologyReport(report); err != nil {
+		return nil, err
+	}
 	return report, nil
 }
 
@@ -229,8 +232,9 @@ func parseScanLine(raw string) *ScanInfo {
 }
 
 type configRow struct {
-	depth int
-	node  VdevNode
+	depth     int
+	node      VdevNode
+	isSection bool
 }
 
 func parseConfigTree(lines []string) (*VdevNode, []string, error) {
@@ -238,6 +242,7 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	rows := make([]configRow, 0)
 	minDepth := -1
 	step := 0
+	var sectionBaseDepth = -1
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
 		if trim == "" {
@@ -247,16 +252,21 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 		if strings.HasPrefix(upper, "NAME ") && strings.Contains(upper, "STATE") {
 			continue
 		}
-		depth, node, supplemental, err := parseConfigLine(line)
+		if section, ok := isAuxSectionHeader(trim); ok {
+			rows = append(rows, configRow{
+				depth:     measureDepth(line),
+				isSection: true,
+				node: VdevNode{
+					Name:      section,
+					VdevClass: auxSectionClass(section),
+					State:     "ONLINE",
+				},
+			})
+			continue
+		}
+		depth, node, err := parseConfigLine(line)
 		if err != nil {
 			return nil, issues, err
-		}
-		if supplemental {
-			if len(rows) == 0 {
-				return nil, issues, errors.New("device path without parent vdev")
-			}
-			rows[len(rows)-1].node.DevicePath = node.Name
-			continue
 		}
 		if minDepth < 0 || depth < minDepth {
 			minDepth = depth
@@ -268,6 +278,10 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	}
 	depths := make([]int, 0, len(rows))
 	for _, r := range rows {
+		if r.isSection {
+			depths = append(depths, 0)
+			continue
+		}
 		depths = append(depths, r.depth-minDepth)
 	}
 	step = detectIndentStep(depths)
@@ -283,18 +297,42 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	}
 	var root *VdevNode
 	stack := make([]*VdevNode, 0)
+	var activeSection *VdevNode
 	for i, row := range rows {
 		node := row.node
-		node.VdevClass = classifyVdev(node.Name, levels[i])
 		lvl := levels[i]
+		if row.isSection {
+			if root == nil {
+				return nil, issues, errors.New("auxiliary section before pool root")
+			}
+			node.VdevClass = auxSectionClass(node.Name)
+			root.Children = append(root.Children, node)
+			activeSection = &root.Children[len(root.Children)-1]
+			sectionBaseDepth = row.depth
+			continue
+		}
+		if activeSection != nil && row.depth > sectionBaseDepth {
+			node.VdevClass = classifyVdev(node.Name, 2)
+			activeSection.Children = append(activeSection.Children, node)
+			continue
+		}
+		activeSection = nil
+		sectionBaseDepth = -1
+		node.VdevClass = classifyVdev(node.Name, lvl)
 		if lvl == 0 {
+			if root != nil {
+				return nil, issues, fmt.Errorf("multiple root vdev rows (%q and %q)", root.Name, node.Name)
+			}
 			root = &node
 			stack = []*VdevNode{root}
 			rows[i].node = *root
 			continue
 		}
+		if root == nil {
+			return nil, issues, fmt.Errorf("child vdev %q before pool root", node.Name)
+		}
 		if lvl > len(stack) {
-			return nil, issues, fmt.Errorf("ambiguous topology near %q", node.Name)
+			return nil, issues, fmt.Errorf("invalid parent depth for %q", node.Name)
 		}
 		parent := stack[lvl-1]
 		parent.Children = append(parent.Children, node)
@@ -335,23 +373,30 @@ func detectIndentStep(depths []int) int {
 	return minDiff
 }
 
-func parseConfigLine(line string) (int, VdevNode, bool, error) {
+func parseConfigLine(line string) (int, VdevNode, error) {
 	depth := measureDepth(line)
 	content := strings.TrimLeft(line, " \t")
 	parts := strings.Fields(content)
+	if len(parts) == 2 && isVdevState(parts[1]) {
+		return depth, VdevNode{
+			Name:      parts[0],
+			State:     parts[1],
+			VdevClass: classifyVdev(parts[0], 1),
+		}, nil
+	}
 	if len(parts) < 5 {
-		return 0, VdevNode{}, false, fmt.Errorf("malformed config row: %q", strings.TrimSpace(line))
+		return 0, VdevNode{}, fmt.Errorf("malformed config row: %q", strings.TrimSpace(line))
 	}
 	counterStart, ok := findCounterStart(parts)
 	if !ok {
-		return 0, VdevNode{}, false, fmt.Errorf("malformed counter row: %q", strings.TrimSpace(line))
+		return 0, VdevNode{}, fmt.Errorf("malformed counter row: %q", strings.TrimSpace(line))
 	}
 	stateIdx := counterStart - 1
 	for stateIdx > 0 && !isVdevState(parts[stateIdx]) {
 		stateIdx--
 	}
 	if stateIdx < 1 || !isVdevState(parts[stateIdx]) {
-		return 0, VdevNode{}, false, fmt.Errorf("unknown state in row: %q", strings.TrimSpace(line))
+		return 0, VdevNode{}, fmt.Errorf("unknown state in row: %q", strings.TrimSpace(line))
 	}
 	name := strings.Join(parts[:stateIdx], " ")
 	state := parts[stateIdx]
@@ -362,9 +407,6 @@ func parseConfigLine(line string) (int, VdevNode, bool, error) {
 	read, readOK := parseCounterToken(parts[counterStart])
 	write, writeOK := parseCounterToken(parts[counterStart+1])
 	cksum, cksumOK := parseCounterToken(parts[counterStart+2])
-	if strings.HasPrefix(name, "/dev/") {
-		return depth, VdevNode{Name: name}, true, nil
-	}
 	node := VdevNode{Name: name, State: state, StateDetail: detail}
 	if readOK {
 		node.ReadErrors = read
@@ -375,7 +417,7 @@ func parseConfigLine(line string) (int, VdevNode, bool, error) {
 	if cksumOK {
 		node.CksumErrors = cksum
 	}
-	return depth, node, false, nil
+	return depth, node, nil
 }
 
 func findCounterStart(parts []string) (int, bool) {
@@ -455,6 +497,8 @@ func classifyVdev(name string, level int) string {
 		return "special"
 	case strings.HasPrefix(lower, "logs"):
 		return "logs"
+	case strings.HasPrefix(lower, "cache"):
+		return "cache"
 	case strings.HasPrefix(lower, "stripe"):
 		return "stripe"
 	case strings.HasPrefix(name, "/dev/"):
@@ -464,27 +508,42 @@ func classifyVdev(name string, level int) string {
 	}
 }
 
-// EnrichListHealth annotates pools with list health and consistency flags.
+// MarkListHealthUnverified marks every pool as unverified when list output is unavailable.
+func (r *TopologyReport) MarkListHealthUnverified(reason string) {
+	for i := range r.Pools {
+		r.Pools[i].ListHealthStatus = ListHealthUnverified
+		r.Pools[i].ParseIssues = append(r.Pools[i].ParseIssues, reason)
+	}
+}
+
+// EnrichListHealth compares status pools with zpool list in both directions.
 func (r *TopologyReport) EnrichListHealth(list []Pool) {
 	byName := make(map[string]string, len(list))
 	for _, p := range list {
 		byName[p.Name] = p.Health
 	}
+	statusNames := make(map[string]bool, len(r.Pools))
 	for i := range r.Pools {
+		statusNames[r.Pools[i].Name] = true
 		health, ok := byName[r.Pools[i].Name]
 		if !ok {
+			r.Pools[i].ListHealthStatus = ListHealthVerifiedInconsistent
 			r.Pools[i].ParseIssues = append(r.Pools[i].ParseIssues, "pool missing from zpool list")
-			r.Pools[i].HealthMatch = boolPtr(false)
 			continue
 		}
 		r.Pools[i].ListHealth = health
-		match := strings.EqualFold(r.Pools[i].State, health)
-		r.Pools[i].HealthMatch = &match
-		if !match {
+		if strings.EqualFold(r.Pools[i].State, health) {
+			r.Pools[i].ListHealthStatus = ListHealthVerifiedConsistent
+		} else {
+			r.Pools[i].ListHealthStatus = ListHealthVerifiedInconsistent
 			r.Pools[i].ParseIssues = append(r.Pools[i].ParseIssues,
 				fmt.Sprintf("state %q differs from list health %q", r.Pools[i].State, health))
 		}
 	}
+	for _, p := range list {
+		if !statusNames[p.Name] {
+			r.ReportIssues = append(r.ReportIssues,
+				fmt.Sprintf("pool %q present in zpool list but missing from zpool status", p.Name))
+		}
+	}
 }
-
-func boolPtr(v bool) *bool { return &v }

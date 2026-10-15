@@ -1,0 +1,12 @@
+  pool: data
+ state: DEGRADED
+  scan: none requested
+config:
+
+	NAME                                      STATE     READ WRITE CKSUM
+	data                                      DEGRADED     0     0     0
+	  mirror-0                                DEGRADED     0     0     0
+	    12841765308123764671                    UNAVAIL      0     0     0  was /dev/nvme0n1
+	    12841765308123764672                    ONLINE       0     0     0
+
+errors: No known data errors
