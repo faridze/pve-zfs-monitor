@@ -1,0 +1,12 @@
+  pool: rpool
+ state: ONLINE
+  scan: scrub canceled on Wed Oct  1 15:00:00 2025
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	rpool       ONLINE       0     0     0
+	  mirror-0  ONLINE       0     0     0
+	    nvme0n1   ONLINE       0     0     0
+	    nvme1n1   ONLINE       0     0     0
+
+errors: No known data errors

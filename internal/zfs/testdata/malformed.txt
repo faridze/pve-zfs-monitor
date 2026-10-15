@@ -1,0 +1,8 @@
+  pool: broken
+ state: ONLINE
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	broken      ONLINE       0     0
+
+errors: No known data errors

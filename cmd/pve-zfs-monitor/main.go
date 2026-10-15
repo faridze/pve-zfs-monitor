@@ -15,13 +15,15 @@ import (
 var version = "dev"
 
 type runtimeConfig struct {
-	listPools func(context.Context) ([]zfs.Pool, error)
-	timeout   time.Duration
+	listPools       func(context.Context) ([]zfs.Pool, error)
+	collectTopology func(context.Context) (*zfs.TopologyReport, error)
+	timeout         time.Duration
 }
 
 var defaultRuntime = runtimeConfig{
-	listPools: zfs.ListPools,
-	timeout:   10 * time.Second,
+	listPools:       zfs.ListPools,
+	collectTopology: zfs.CollectTopology,
+	timeout:         10 * time.Second,
 }
 
 func main() {
@@ -34,12 +36,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func runWith(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|version> [--json]")
+		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|topology|version> [--json]")
 		return 0
 	}
 	if args[0] == "version" && len(args) == 1 {
 		fmt.Fprintln(stdout, version)
 		return 0
+	}
+	if args[0] == "topology" {
+		return runTopology(cfg, args, stdout, stderr)
 	}
 	if args[0] != "status" && args[0] != "check" {
 		fmt.Fprintln(stderr, "unknown command (see --help)")
@@ -77,4 +82,23 @@ func runWith(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
 		return int(result)
 	}
 	return 0 // status is informational; check has monitoring exit codes.
+}
+
+func runTopology(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 2 || args[1] != "--json" {
+		fmt.Fprintln(stderr, "topology requires --json (see --help)")
+		return 64
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
+	defer cancel()
+	report, err := cfg.collectTopology(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "ZFS topology UNKNOWN: %v\n", err)
+		return 3
+	}
+	if err := json.NewEncoder(stdout).Encode(report); err != nil {
+		fmt.Fprintf(stderr, "failed to encode topology: %v\n", err)
+		return 3
+	}
+	return 0
 }

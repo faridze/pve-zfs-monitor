@@ -1,0 +1,13 @@
+  pool: rpool
+ state: DEGRADED
+status: One or more devices could not be used because the label is missing or invalid.
+  scan: scrub in progress since Wed Oct  1 12:00:00 2025
+config:
+
+	NAME                                          STATE     READ WRITE CKSUM
+	rpool                                         DEGRADED     0     0     0
+	  mirror-0                                    DEGRADED     0     0     0
+	    nvme-eui.abc111                             ONLINE       0     0     0
+	    nvme-eui.abc222                             UNAVAIL      0     0     0  cannot open
+
+errors: No known data errors
