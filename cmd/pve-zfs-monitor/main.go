@@ -14,11 +14,25 @@ import (
 
 var version = "dev"
 
+type runtimeConfig struct {
+	listPools func(context.Context) ([]zfs.Pool, error)
+	timeout   time.Duration
+}
+
+var defaultRuntime = runtimeConfig{
+	listPools: zfs.ListPools,
+	timeout:   10 * time.Second,
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(defaultRuntime, args, stdout, stderr)
+}
+
+func runWith(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
 		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|version> [--json]")
 		return 0
@@ -36,9 +50,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 64
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
-	pools, err := zfs.ListPools(ctx)
+	pools, err := cfg.listPools(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "ZFS health UNKNOWN: %v\n", err)
 		return 3
