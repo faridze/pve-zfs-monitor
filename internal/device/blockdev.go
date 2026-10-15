@@ -2,7 +2,6 @@ package device
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -12,11 +11,20 @@ type DeviceVerifier interface {
 	VerifyBlockDevice(devicePath string, expect PhysicalIdentity) error
 }
 
-// OSDeviceVerifier uses sysfs class block entries on Linux.
-type OSDeviceVerifier struct{}
+// OSDeviceVerifier uses sysfs and live /dev node type/major:minor on Linux.
+type OSDeviceVerifier struct {
+	Inspector BlockDevInspector
+}
 
-// VerifyBlockDevice ensures path exists under /sys/class/block for the kernel name.
-func (OSDeviceVerifier) VerifyBlockDevice(devicePath string, expect PhysicalIdentity) error {
+func (v OSDeviceVerifier) liveInspector() BlockDevInspector {
+	if v.Inspector != nil {
+		return v.Inspector
+	}
+	return linuxSysfsInspector{}
+}
+
+// VerifyBlockDevice ensures the path is inventory-consistent and a live block special device.
+func (v OSDeviceVerifier) VerifyBlockDevice(devicePath string, expect PhysicalIdentity) error {
 	kname := expect.KernelName
 	if kname == "" {
 		kname = strings.TrimPrefix(filepath.Clean(devicePath), "/dev/")
@@ -27,11 +35,7 @@ func (OSDeviceVerifier) VerifyBlockDevice(devicePath string, expect PhysicalIden
 	if expect.DevicePath != "" && filepath.Clean(expect.DevicePath) != filepath.Clean(devicePath) {
 		return fmt.Errorf("inventory path %q does not match target %q", expect.DevicePath, devicePath)
 	}
-	sys := filepath.Join("/sys/class/block", kname)
-	if _, err := os.Stat(sys); err != nil {
-		return fmt.Errorf("block device %q not present in sysfs: %v", devicePath, err)
-	}
-	return nil
+	return v.liveInspector().VerifyLiveBlockDevice(filepath.Clean(devicePath), kname)
 }
 
 // StubDeviceVerifier accepts paths present in the provided inventory map (tests).
@@ -78,10 +82,11 @@ func ResolveSMARTTarget(requested string, inv *Inventory, verifier DeviceVerifie
 	default:
 		return "", fmt.Errorf("unsupported block kind %q for SMART on %q", id.Kind, requested)
 	}
-	if verifier != nil {
-		if err := verifier.VerifyBlockDevice(target, id); err != nil {
-			return "", err
-		}
+	if verifier == nil {
+		return "", fmt.Errorf("device verifier required for SMART target %q", requested)
+	}
+	if err := verifier.VerifyBlockDevice(target, id); err != nil {
+		return "", err
 	}
 	return target, nil
 }

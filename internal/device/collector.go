@@ -60,10 +60,18 @@ func (c *Collector) Collect(ctx context.Context) (*DeviceReport, error) {
 		report.SmartCompleteness = ReportSmartNotAttempted
 	} else {
 		for _, path := range healthPaths {
+			if ctx.Err() != nil {
+				report.DeviceHealth = append(report.DeviceHealth, DeviceHealth{
+					DevicePath:       path,
+					CollectionStatus: HealthNotAttempted,
+					CollectionDetail: ctx.Err().Error(),
+				})
+				continue
+			}
 			h := c.collectSmart(ctx, path, inv)
 			report.DeviceHealth = append(report.DeviceHealth, h)
 		}
-		report.SmartCompleteness = smartCompleteness(report.DeviceHealth)
+		report.SmartCompleteness = smartCompleteness(healthPaths, report.DeviceHealth)
 	}
 	return report, nil
 }
@@ -83,24 +91,31 @@ func mappingCompleteness(mappings []MemberMapping) string {
 		return ReportMappingIncomplete
 	}
 	for _, m := range mappings {
-		if m.Outcome == MappingMapped {
-			return ReportMappingComplete
+		if m.Outcome != MappingMapped {
+			return ReportMappingIncomplete
 		}
 	}
-	return ReportMappingIncomplete
+	return ReportMappingComplete
 }
 
-func smartCompleteness(health []DeviceHealth) string {
-	if len(health) == 0 {
+func smartCompleteness(expectedPaths []string, health []DeviceHealth) string {
+	if len(expectedPaths) == 0 {
 		return ReportSmartNotAttempted
 	}
+	byPath := make(map[string]DeviceHealth, len(health))
 	for _, h := range health {
-		switch h.CollectionStatus {
-		case HealthCollected, HealthPartial, HealthConflict:
-			return ReportSmartComplete
+		byPath[h.DevicePath] = h
+	}
+	for _, path := range expectedPaths {
+		h, ok := byPath[path]
+		if !ok {
+			return ReportSmartIncomplete
+		}
+		if h.CollectionStatus != HealthCollected {
+			return ReportSmartIncomplete
 		}
 	}
-	return ReportSmartIncomplete
+	return ReportSmartComplete
 }
 
 func (c *Collector) collectInventory(ctx context.Context) (*Inventory, error) {
@@ -135,7 +150,7 @@ func (c *Collector) collectSmart(ctx context.Context, devicePath string, inv *In
 	h := DeviceHealth{DevicePath: devicePath, CollectionStatus: HealthNotAttempted}
 	verifier := c.DeviceVerifier
 	if verifier == nil {
-		verifier = StubDeviceVerifier{}
+		verifier = OSDeviceVerifier{}
 	}
 	target, err := ResolveSMARTTarget(devicePath, inv, verifier)
 	if err != nil {
@@ -201,9 +216,6 @@ func (c *Collector) collectSmart(ctx context.Context, devicePath string, inv *In
 func smartctlPermissionDenied(runErr *cmdrun.Error, outStderr []byte) bool {
 	if runErr == nil {
 		return false
-	}
-	if runErr.ExitCode == 13 {
-		return true
 	}
 	stderr := runErr.Stderr
 	if len(stderr) == 0 {

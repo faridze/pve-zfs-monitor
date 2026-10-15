@@ -53,6 +53,13 @@ func TestTopologyJSONCommand(t *testing.T) {
 	}
 }
 
+func TestDevicesUsesExtendedTimeoutBudget(t *testing.T) {
+	if defaultRuntime.devicesTimeout <= defaultRuntime.timeout {
+		t.Fatalf("devices timeout should exceed default CLI timeout: devices=%v default=%v",
+			defaultRuntime.devicesTimeout, defaultRuntime.timeout)
+	}
+}
+
 func TestDevicesJSONCommand(t *testing.T) {
 	cfg := runtimeConfig{
 		collectDevices: func(context.Context) (*device.DeviceReport, error) {

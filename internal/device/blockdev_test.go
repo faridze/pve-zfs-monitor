@@ -21,6 +21,36 @@ func TestResolveSMARTTargetRejectsPhantomPartition(t *testing.T) {
 	}
 }
 
+func TestResolveSMARTTargetRequiresVerifier(t *testing.T) {
+	inv, err := ParseLsblkJSON(loadFixture("lsblk_nvme_mirror.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ResolveSMARTTarget("/dev/nvme0n1", inv, nil)
+	if err == nil {
+		t.Fatal("expected error without verifier")
+	}
+}
+
+func TestOSDeviceVerifierUsesInjectableInspector(t *testing.T) {
+	inv, err := ParseLsblkJSON(loadFixture("lsblk_nvme_mirror.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := inv.Devices["/dev/nvme0n1"]
+	inspector := MapBlockInspector{
+		"/dev/nvme0n1": {KernelName: "nvme0n1", Block: true},
+	}
+	v := OSDeviceVerifier{Inspector: inspector}
+	if err := v.VerifyBlockDevice("/dev/nvme0n1", id); err != nil {
+		t.Fatal(err)
+	}
+	inspector["/dev/nvme0n1"] = BlockSpec{KernelName: "nvme0n1", Block: false}
+	if err := v.VerifyBlockDevice("/dev/nvme0n1", id); err == nil {
+		t.Fatal("expected reject for non-block spec")
+	}
+}
+
 func TestResolveSMARTTargetPartitionToVerifiedParent(t *testing.T) {
 	inv, err := ParseLsblkJSON(loadFixture("lsblk_nvme_mirror.json"))
 	if err != nil {

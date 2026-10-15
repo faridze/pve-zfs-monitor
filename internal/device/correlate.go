@@ -181,12 +181,6 @@ func resolveToInventoryPath(path string, inv *Inventory, ev MappingEvidence) (st
 	if _, ok := inv.Devices[path]; ok {
 		return path, []MappingEvidence{ev}, true
 	}
-	parent := partitionParentPath(path)
-	if parent != "" {
-		if _, ok := inv.Devices[parent]; ok {
-			return parent, []MappingEvidence{ev, {Source: "partition_parent", Detail: parent, Strength: "high"}}, true
-		}
-	}
 	return "", nil, false
 }
 

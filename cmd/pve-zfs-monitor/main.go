@@ -20,6 +20,7 @@ type runtimeConfig struct {
 	collectTopology func(context.Context) (*zfs.TopologyReport, error)
 	collectDevices  func(context.Context) (*device.DeviceReport, error)
 	timeout         time.Duration
+	devicesTimeout  time.Duration
 }
 
 var defaultRuntime = runtimeConfig{
@@ -28,7 +29,8 @@ var defaultRuntime = runtimeConfig{
 	collectDevices: func(ctx context.Context) (*device.DeviceReport, error) {
 		return device.DefaultCollector().Collect(ctx)
 	},
-	timeout: 10 * time.Second,
+	timeout:        10 * time.Second,
+	devicesTimeout: 120 * time.Second,
 }
 
 func main() {
@@ -116,7 +118,11 @@ func runDevices(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stderr, "devices requires --json (see --help)")
 		return 64
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
+	budget := cfg.devicesTimeout
+	if budget == 0 {
+		budget = cfg.timeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	report, err := cfg.collectDevices(ctx)
 	if err != nil {
