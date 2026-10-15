@@ -26,29 +26,37 @@ func validatePoolStructure(poolName string, root *VdevNode) error {
 	if root.Name != poolName {
 		return fmt.Errorf("root vdev %q does not match pool name %q", root.Name, poolName)
 	}
-	return validateVdevTree(root)
+	return validateVdevTree(root, false)
 }
 
-func validateVdevTree(node *VdevNode) error {
+func isSparesSectionNode(node *VdevNode) bool {
+	return node != nil && node.Name == "spares" && node.VdevClass == "spare" && !node.StateObserved
+}
+
+func validateVdevTree(node *VdevNode, inSparesSection bool) error {
 	if node.VdevClass == "mirror" && len(node.Children) == 0 {
 		return fmt.Errorf("mirror %q has no members", node.Name)
 	}
-	if err := validateMemberCounters(node); err != nil {
+	if err := validateMemberCounters(node, inSparesSection); err != nil {
 		return err
 	}
+	childInSpares := inSparesSection || isSparesSectionNode(node)
 	for i := range node.Children {
-		if err := validateVdevTree(&node.Children[i]); err != nil {
+		if err := validateVdevTree(&node.Children[i], childInSpares); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateMemberCounters(node *VdevNode) error {
+func validateMemberCounters(node *VdevNode, inSparesSection bool) error {
 	if !node.StateObserved {
 		return nil
 	}
-	if node.State == "AVAIL" || node.State == "INUSE" {
+	if isCounterlessSpareRow(*node) {
+		if !inSparesSection {
+			return fmt.Errorf("counterless spare row %q with state %q outside spares section", node.Name, node.State)
+		}
 		return nil
 	}
 	if node.VdevClass == "section" {

@@ -322,6 +322,7 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 	var root *VdevNode
 	stack := make([]*VdevNode, 0)
 	inSection := false
+	activeAuxSection := ""
 	sectionBaseDepth := -1
 	auxMinDepth := -1
 	auxRelDepths := make([]int, 0, 8)
@@ -337,10 +338,14 @@ func parseConfigTree(lines []string) (*VdevNode, []string, error) {
 			sectionNode := &root.Children[len(root.Children)-1]
 			stack = []*VdevNode{root, sectionNode}
 			inSection = true
+			activeAuxSection = node.Name
 			sectionBaseDepth = row.depth
 			auxMinDepth = -1
 			auxRelDepths = auxRelDepths[:0]
 			continue
+		}
+		if err := enforceCounterlessSpareContext(node, inSection, activeAuxSection); err != nil {
+			return nil, issues, err
 		}
 		if inSection {
 			if row.depth <= sectionBaseDepth {
@@ -503,6 +508,23 @@ func isVdevState(s string) bool {
 
 func isCounterlessSpareState(s string) bool {
 	return s == "AVAIL" || s == "INUSE"
+}
+
+func isCounterlessSpareRow(node VdevNode) bool {
+	if !node.StateObserved || !isCounterlessSpareState(node.State) {
+		return false
+	}
+	return node.ReadErrors == nil && node.WriteErrors == nil && node.CksumErrors == nil
+}
+
+func enforceCounterlessSpareContext(node VdevNode, inAuxSection bool, auxSection string) error {
+	if !isCounterlessSpareRow(node) {
+		return nil
+	}
+	if !inAuxSection || auxSection != "spares" {
+		return fmt.Errorf("counterless spare row %q with state %q outside spares section", node.Name, node.State)
+	}
+	return nil
 }
 
 func measureDepth(line string) int {

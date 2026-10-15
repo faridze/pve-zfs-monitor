@@ -33,6 +33,31 @@ func TestParseTruncatedBeforeErrorsRejected(t *testing.T) {
 	}
 }
 
+func TestParseCounterlessSpareOutsideSparesRejected(t *testing.T) {
+	cases := []struct {
+		fixture string
+		state   string
+	}{
+		{"counterless_inuse_under_mirror.txt", "INUSE"},
+		{"counterless_avail_under_mirror.txt", "AVAIL"},
+		{"counterless_avail_under_logs.txt", "AVAIL"},
+	}
+	for _, tc := range cases {
+		_, err := ParseStatus(loadFixture(tc.fixture))
+		if err == nil || !strings.Contains(err.Error(), "outside spares section") {
+			t.Fatalf("%s: expected outside spares section error for %s, got %v", tc.fixture, tc.state, err)
+		}
+	}
+}
+
+func TestParseLegitimateCounterlessSpares(t *testing.T) {
+	for _, name := range []string{"auxiliary_spares.txt", "auxiliary_spares_inuse.txt"} {
+		if _, err := ParseStatus(loadFixture(name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestParseHotSpareInUse(t *testing.T) {
 	report, err := ParseStatus(loadFixture("auxiliary_spares_inuse.txt"))
 	if err != nil {
