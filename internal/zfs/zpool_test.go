@@ -55,23 +55,44 @@ func TestAssessFailClosed(t *testing.T) {
 }
 
 type stubRunner struct {
-	out cmdrun.Output
-	err error
+	out      cmdrun.Output
+	err      error
+	lastPath string
+	lastArgs []string
 }
 
-func (s stubRunner) Run(context.Context, string, []string) (cmdrun.Output, error) {
+func (s *stubRunner) Run(_ context.Context, path string, args []string) (cmdrun.Output, error) {
+	s.lastPath = path
+	s.lastArgs = append([]string(nil), args...)
 	return s.out, s.err
 }
 
 func TestPoolCollectorListPoolsSuccess(t *testing.T) {
-	c := &PoolCollector{
-		Runner:    stubRunner{out: cmdrun.Output{Stdout: []byte("rpool\tONLINE\n")}},
-		ZpoolPath: ZpoolPath,
-		ListArgs:  defaultListArgs,
-	}
+	stub := &stubRunner{out: cmdrun.Output{Stdout: []byte("rpool\tONLINE\n")}}
+	c := NewPoolCollector(stub)
 	pools, err := c.ListPools(context.Background())
 	if err != nil || len(pools) != 1 || pools[0].Health != "ONLINE" {
 		t.Fatalf("unexpected result: %#v err=%v", pools, err)
+	}
+}
+
+func TestPoolCollectorUsesFixedReadOnlyInvocation(t *testing.T) {
+	stub := &stubRunner{out: cmdrun.Output{Stdout: []byte("rpool\tONLINE\n")}}
+	c := NewPoolCollector(stub)
+	if _, err := c.ListPools(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stub.lastPath != ZpoolPath {
+		t.Fatalf("path=%q want %q", stub.lastPath, ZpoolPath)
+	}
+	wantArgs := []string{"list", "-H", "-o", "name,health"}
+	if len(stub.lastArgs) != len(wantArgs) {
+		t.Fatalf("args=%v want %v", stub.lastArgs, wantArgs)
+	}
+	for i := range wantArgs {
+		if stub.lastArgs[i] != wantArgs[i] {
+			t.Fatalf("args=%v want %v", stub.lastArgs, wantArgs)
+		}
 	}
 }
 
@@ -103,11 +124,7 @@ func TestPoolCollectorListPoolsFailures(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		c := &PoolCollector{
-			Runner:    stubRunner{err: tc.err},
-			ZpoolPath: ZpoolPath,
-			ListArgs:  defaultListArgs,
-		}
+		c := NewPoolCollector(&stubRunner{err: tc.err})
 		_, err := c.ListPools(context.Background())
 		if err == nil || !strings.Contains(err.Error(), tc.contain) {
 			t.Fatalf("%s: expected error containing %q, got %v", tc.name, tc.contain, err)
@@ -115,12 +132,20 @@ func TestPoolCollectorListPoolsFailures(t *testing.T) {
 	}
 }
 
-func TestPoolCollectorMalformedStdout(t *testing.T) {
-	c := &PoolCollector{
-		Runner:    stubRunner{out: cmdrun.Output{Stdout: []byte("not-tab-separated\n")}},
-		ZpoolPath: ZpoolPath,
-		ListArgs:  defaultListArgs,
+func TestPoolCollectorTimeoutClassification(t *testing.T) {
+	c := NewPoolCollector(&stubRunner{err: &cmdrun.Error{
+		Kind:  cmdrun.Timeout,
+		Path:  ZpoolPath,
+		Cause: context.DeadlineExceeded,
+	}})
+	_, err := c.ListPools(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
 	}
+}
+
+func TestPoolCollectorMalformedStdout(t *testing.T) {
+	c := NewPoolCollector(&stubRunner{out: cmdrun.Output{Stdout: []byte("not-tab-separated\n")}})
 	_, err := c.ListPools(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "malformed") {
 		t.Fatalf("expected malformed error, got %v", err)

@@ -116,14 +116,3 @@ func TestCollectionErrorsExitUnknown(t *testing.T) {
 		}
 	}
 }
-
-func TestListPoolsTimeoutViaCollector(t *testing.T) {
-	// Exercises timeout classification through the zfs collector path (not the CLI hook).
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
-	defer cancel()
-	time.Sleep(2 * time.Millisecond)
-	_, err := zfs.ListPools(ctx)
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("expected timeout error, got %v", err)
-	}
-}

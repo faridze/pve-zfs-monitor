@@ -11,11 +11,13 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 const (
 	DefaultMaxStdoutBytes = 1 << 20  // 1 MiB
 	DefaultMaxStderrBytes = 64 << 10 // 64 KiB
+	maxStderrMessageRunes = 200
 )
 
 // Limits caps captured stdout and stderr per invocation.
@@ -46,6 +48,7 @@ const (
 	Timeout      Kind = 2
 	ExitError    Kind = 3
 	Truncated    Kind = 4
+	ReadError    Kind = 5
 )
 
 // Error describes a failed command execution.
@@ -67,6 +70,8 @@ func (e *Error) Error() string {
 		return fmt.Sprintf("%s timed out: %v", e.Path, e.Cause)
 	case Truncated:
 		return fmt.Sprintf("%s output truncated (stdout=%d stderr=%d bytes captured)", e.Path, len(e.Stdout), len(e.Stderr))
+	case ReadError:
+		return fmt.Sprintf("%s output read failed: %v", e.Path, e.Cause)
 	case ExitError:
 		msg := trimForMessage(e.Stderr)
 		if msg == "" {
@@ -93,6 +98,12 @@ type OSRunner struct {
 // NewOSRunner constructs a runner with the given output limits.
 func NewOSRunner(limits Limits) *OSRunner {
 	return &OSRunner{Limits: limits}
+}
+
+type streamRead struct {
+	data      []byte
+	truncated bool
+	err       error
 }
 
 // Run executes path with args under ctx. Truncated output is a failure.
@@ -122,22 +133,52 @@ func (r *OSRunner) Run(ctx context.Context, path string, args []string) (Output,
 		return Output{}, fmt.Errorf("start %s: %w", path, err)
 	}
 
-	var out Output
-	var stdoutTrunc, stderrTrunc bool
+	var killOnce sync.Once
+	killProcess := func() {
+		killOnce.Do(func() {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		})
+	}
+
+	var stdoutRead, stderrRead streamRead
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
-		out.Stdout, stdoutTrunc = readLimited(stdoutPipe, r.Limits.MaxStdoutBytes)
+		stdoutRead = readBounded(stdoutPipe, r.Limits.MaxStdoutBytes, killProcess)
 		wg.Done()
 	}()
 	go func() {
-		out.Stderr, stderrTrunc = readLimited(stderrPipe, r.Limits.MaxStderrBytes)
+		stderrRead = readBounded(stderrPipe, r.Limits.MaxStderrBytes, killProcess)
 		wg.Done()
 	}()
 	wg.Wait()
 
+	out := Output{Stdout: stdoutRead.data, Stderr: stderrRead.data}
 	waitErr := cmd.Wait()
-	if stdoutTrunc || stderrTrunc {
+
+	if stdoutRead.err != nil {
+		return out, &Error{
+			Kind:   ReadError,
+			Path:   path,
+			Args:   args,
+			Stdout: out.Stdout,
+			Stderr: out.Stderr,
+			Cause:  stdoutRead.err,
+		}
+	}
+	if stderrRead.err != nil {
+		return out, &Error{
+			Kind:   ReadError,
+			Path:   path,
+			Args:   args,
+			Stdout: out.Stdout,
+			Stderr: out.Stderr,
+			Cause:  stderrRead.err,
+		}
+	}
+	if stdoutRead.truncated || stderrRead.truncated {
 		return out, &Error{
 			Kind:   Truncated,
 			Path:   path,
@@ -187,23 +228,77 @@ func statExecutable(path string) error {
 	return nil
 }
 
-func readLimited(r io.Reader, max int) ([]byte, bool) {
+// readBounded captures up to max bytes and always drains the reader to EOF.
+// When the limit is exceeded, onExceeded is invoked once so the subprocess can be terminated.
+func readBounded(r io.Reader, max int, onExceeded func()) streamRead {
 	if max <= 0 {
-		return nil, true
+		onExceeded()
+		_, err := io.Copy(io.Discard, r)
+		return streamRead{truncated: true, err: normalizeReadErr(err)}
 	}
+
 	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, io.LimitReader(r, int64(max)+1))
-	data := buf.Bytes()
-	if len(data) > max {
-		return data[:max], true
+	buf.Grow(min(max, 4096))
+	scratch := make([]byte, 32*1024)
+	truncated := false
+	for {
+		n, err := r.Read(scratch)
+		if n > 0 {
+			if !truncated {
+				remaining := max - buf.Len()
+				if remaining > 0 {
+					if n > remaining {
+						buf.Write(scratch[:remaining])
+						truncated = true
+						onExceeded()
+					} else {
+						buf.Write(scratch[:n])
+					}
+				}
+				if buf.Len() >= max {
+					truncated = true
+					onExceeded()
+				}
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return streamRead{data: buf.Bytes(), truncated: truncated, err: nil}
+			}
+			return streamRead{data: buf.Bytes(), truncated: truncated, err: err}
+		}
 	}
-	return data, false
+}
+
+func normalizeReadErr(err error) error {
+	if err == nil || errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
 
 func trimForMessage(stderr []byte) string {
-	s := strings.TrimSpace(string(stderr))
-	if len(s) > 200 {
-		return s[:200] + "..."
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(string(stderr)) {
+		if r == '\n' || r == '\r' || r == '\t' {
+			b.WriteRune(' ')
+			continue
+		}
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	s := strings.TrimSpace(b.String())
+	if len(s) > maxStderrMessageRunes {
+		return s[:maxStderrMessageRunes] + "..."
 	}
 	return s
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

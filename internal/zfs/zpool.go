@@ -11,16 +11,13 @@ import (
 	"github.com/faridze/pve-zfs-monitor/internal/cmdrun"
 )
 
+// ZpoolPath is the fixed read-only zpool binary location on Proxmox hosts.
 const ZpoolPath = "/usr/sbin/zpool"
 
-var defaultListArgs = []string{"list", "-H", "-o", "name,health"}
+var zpoolListHealthArgs = []string{"list", "-H", "-o", "name,health"}
 
 // DefaultCollector is the production pool list collector.
-var DefaultCollector = &PoolCollector{
-	Runner:    cmdrun.NewOSRunner(cmdrun.DefaultLimits()),
-	ZpoolPath: ZpoolPath,
-	ListArgs:  defaultListArgs,
-}
+var DefaultCollector = NewPoolCollector(cmdrun.NewOSRunner(cmdrun.DefaultLimits()))
 
 type Pool struct {
 	Name   string `json:"name"`
@@ -48,9 +45,13 @@ func (r Result) Label() string {
 
 // PoolCollector lists pool health using a fixed read-only zpool invocation.
 type PoolCollector struct {
-	Runner    cmdrun.Runner
-	ZpoolPath string
-	ListArgs  []string
+	Runner cmdrun.Runner
+}
+
+// NewPoolCollector returns a collector that uses runner for command execution.
+// Production callers must not vary zpool arguments; only Runner is injectable for tests.
+func NewPoolCollector(runner cmdrun.Runner) *PoolCollector {
+	return &PoolCollector{Runner: runner}
 }
 
 // Assess never treats an unfamiliar health value as healthy.
@@ -111,7 +112,7 @@ func ListPools(ctx context.Context) ([]Pool, error) {
 
 // ListPools runs the configured read-only zpool list command.
 func (c *PoolCollector) ListPools(ctx context.Context) ([]Pool, error) {
-	out, err := c.Runner.Run(ctx, c.ZpoolPath, c.ListArgs)
+	out, err := c.Runner.Run(ctx, ZpoolPath, zpoolListHealthArgs)
 	if err != nil {
 		return nil, mapListPoolsError(err)
 	}
@@ -130,6 +131,8 @@ func mapListPoolsError(err error) error {
 		return fmt.Errorf("zpool timed out: %w", runErr.Cause)
 	case cmdrun.Truncated:
 		return fmt.Errorf("zpool list output truncated")
+	case cmdrun.ReadError:
+		return fmt.Errorf("zpool list failed: %w", runErr)
 	case cmdrun.ExitError:
 		return fmt.Errorf("zpool list failed: %w", runErr)
 	default:
