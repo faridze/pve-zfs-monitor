@@ -2,50 +2,34 @@ package release
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
-// CompareSemver returns -1 if a<b, 0 if equal, 1 if a>b. Pre-release segments are not supported.
+// CompareSemver returns -1 if a<b, 0 if equal, 1 if a>b (SemVer 2.0 including prerelease).
 func CompareSemver(a, b string) (int, error) {
-	av, err := parseSemver(a)
+	ca, err := canonicalSemver(a)
 	if err != nil {
 		return 0, err
 	}
-	bv, err := parseSemver(b)
+	cb, err := canonicalSemver(b)
 	if err != nil {
 		return 0, err
 	}
-	for i := 0; i < 3; i++ {
-		if av[i] < bv[i] {
-			return -1, nil
-		}
-		if av[i] > bv[i] {
-			return 1, nil
-		}
-	}
-	return 0, nil
+	return semver.Compare(ca, cb), nil
 }
 
-func parseSemver(v string) ([]int, error) {
+func canonicalSemver(v string) (string, error) {
 	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "v") {
-		v = v[1:]
+	if v == "" {
+		return "", fmt.Errorf("invalid semver %q", v)
 	}
-	if idx := strings.IndexByte(v, '-'); idx >= 0 {
-		v = v[:idx]
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + strings.TrimPrefix(v, "v")
 	}
-	parts := strings.Split(v, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid semver %q", v)
+	if !semver.IsValid(v) {
+		return "", fmt.Errorf("invalid semver %q", v)
 	}
-	out := make([]int, 3)
-	for i, p := range parts {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return nil, fmt.Errorf("invalid semver component %q", p)
-		}
-		out[i] = n
-	}
-	return out, nil
+	return semver.Canonical(v), nil
 }

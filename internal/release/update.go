@@ -138,7 +138,10 @@ type UpdateLock struct {
 // AcquireUpdateLock creates an exclusive lock file.
 func AcquireUpdateLock(path string) (*UpdateLock, error) {
 	if path == "" {
-		path = filepath.Join(os.TempDir(), "pve-zfs-monitor-update.lock")
+		path = installLockPath()
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -167,6 +170,12 @@ func tryLock(f *os.File) error {
 
 // DownloadArtifact writes a verified artifact to destPath (caller verifies after).
 func DownloadArtifact(ctx context.Context, client HTTPClient, art Artifact, destPath string) error {
+	if err := ValidateHTTPSURL(art.URL); err != nil {
+		return err
+	}
+	if err := ValidateArtifactFilename(art.Filename); err != nil {
+		return err
+	}
 	data, err := client.Get(ctx, art.URL)
 	if err != nil {
 		return err

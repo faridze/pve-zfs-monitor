@@ -2,7 +2,6 @@ package release
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -11,12 +10,9 @@ var DefaultReleaseBaseURL = ""
 
 // ResolveChannelURLs builds HTTPS URLs for manifest and signature objects.
 func ResolveChannelURLs(channel Channel, version string) (ChannelURLs, error) {
-	base := strings.TrimRight(strings.TrimSpace(DefaultReleaseBaseURL), "/")
-	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(os.Getenv("PVE_ZFS_MONITOR_RELEASE_BASE")), "/")
-	}
-	if base == "" {
-		return ChannelURLs{}, fmt.Errorf("release base URL not configured (build-time DefaultReleaseBaseURL or PVE_ZFS_MONITOR_RELEASE_BASE)")
+	base, err := ResolveReleaseBase()
+	if err != nil {
+		return ChannelURLs{}, err
 	}
 	if channel != ChannelStable && channel != ChannelLab {
 		return ChannelURLs{}, fmt.Errorf("invalid channel %q", channel)

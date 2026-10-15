@@ -37,7 +37,9 @@ sudo bash install.sh --channel lab --version 1.0.0-rc1 \
   --trust-key-file "$PVE_ZFS_MONITOR_TRUST_KEY_FILE"
 ```
 
-Bootstrap: if no binary exists yet, the script downloads the release artifact and runs `install-release` on it once (still signature-verified).
+Bootstrap (no existing binary): `install.sh` downloads manifest, signature, and artifact, then **`verify_release.py` + OpenSSL** authenticate the pinned Ed25519 key and SHA-256 **before any execution**. Only then does `atomic-install.sh` copy the verified bytes into place and `persist-release-config.sh` writes `/etc/pve-zfs-monitor/release.conf`. The downloaded artifact is never executed during bootstrap.
+
+If `pve-zfs-monitor` is already installed, `install-release` performs the same verification in-process and updates persisted config.
 
 ## Version
 

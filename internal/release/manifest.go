@@ -3,6 +3,8 @@ package release
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -56,8 +58,29 @@ func ParseManifest(data []byte) (*Manifest, error) {
 		if a.Filename == "" || a.GOOS == "" || a.GOARCH == "" || a.SHA256 == "" || a.Size <= 0 {
 			return nil, fmt.Errorf("artifact %d incomplete", i)
 		}
+		if err := ValidateArtifactFilename(a.Filename); err != nil {
+			return nil, fmt.Errorf("artifact %d: %w", i, err)
+		}
+		if a.URL != "" {
+			if err := ValidateHTTPSURL(a.URL); err != nil {
+				return nil, fmt.Errorf("artifact %d url: %w", i, err)
+			}
+		}
 	}
 	return &m, nil
+}
+
+var safeArtifactName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
+
+// ValidateArtifactFilename rejects path traversal and unsafe names.
+func ValidateArtifactFilename(name string) error {
+	if name == "" || name != filepath.Base(name) || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid artifact filename %q", name)
+	}
+	if !safeArtifactName.MatchString(name) {
+		return fmt.Errorf("unsafe artifact filename %q", name)
+	}
+	return nil
 }
 
 // SelectArtifact picks the artifact matching goos/goarch.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"io"
 	"runtime"
@@ -49,12 +50,16 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	current := release.CurrentInfo()
+	if cfg, err := release.LoadPersistedConfig(); err == nil {
+		channel = string(cfg.Channel)
+	}
 	if current.Channel != "" && channel != current.Channel {
 		fmt.Fprintf(stderr, "update: refusing channel switch from installed %q to %q\n", current.Channel, channel)
 		return 64
 	}
+	secure := release.SecureHTTPClient{UserAgent: "pve-zfs-monitor/" + current.Version}
 	up := release.Updater{
-		Client:           release.NetHTTPClient{UserAgent: "pve-zfs-monitor/" + current.Version},
+		Secure:           secure,
 		PublicKey:        pub,
 		Current:          current,
 		Channel:          release.Channel(channel),
@@ -69,11 +74,16 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "update check failed: %v\n", err)
 		return 3
 	}
-	if checkOnly || dryRun {
+	if checkOnly {
 		fmt.Fprintf(stdout, "update available: %s -> %s (%s)\n", current.Version, plan.Available.Version, plan.Available.Commit)
-		if dryRun {
-			fmt.Fprintln(stdout, "dry-run: verification OK; no files changed")
+		return 0
+	}
+	if dryRun {
+		if err := up.ApplyUpdate(ctx, plan, true); err != nil {
+			fmt.Fprintf(stderr, "dry-run failed: %v\n", err)
+			return 3
 		}
+		fmt.Fprintf(stdout, "dry-run: manifest signature, artifact size and sha256 verified for %s\n", plan.Artifact.Filename)
 		return 0
 	}
 	if err := up.ApplyUpdate(ctx, plan, false); err != nil {
@@ -98,7 +108,8 @@ func runRollback(stdout, stderr io.Writer) int {
 }
 
 func runInstallRelease(args []string, stdout, stderr io.Writer) int {
-	var manifestPath, sigPath, binPath string
+	var manifestPath, sigPath, binPath, releaseBase, channelStr, version string
+	var trustKeyFile string
 	for _, a := range args {
 		if strings.HasPrefix(a, "--manifest=") {
 			manifestPath = strings.TrimPrefix(a, "--manifest=")
@@ -106,6 +117,14 @@ func runInstallRelease(args []string, stdout, stderr io.Writer) int {
 			sigPath = strings.TrimPrefix(a, "--signature=")
 		} else if strings.HasPrefix(a, "--binary=") {
 			binPath = strings.TrimPrefix(a, "--binary=")
+		} else if strings.HasPrefix(a, "--release-base=") {
+			releaseBase = strings.TrimPrefix(a, "--release-base=")
+		} else if strings.HasPrefix(a, "--channel=") {
+			channelStr = strings.TrimPrefix(a, "--channel=")
+		} else if strings.HasPrefix(a, "--version=") {
+			version = strings.TrimPrefix(a, "--version=")
+		} else if strings.HasPrefix(a, "--trust-key-file=") {
+			trustKeyFile = strings.TrimPrefix(a, "--trust-key-file=")
 		}
 	}
 	if manifestPath == "" || sigPath == "" || binPath == "" {
@@ -116,12 +135,36 @@ func runInstallRelease(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "install-release: root privileges required")
 		return 77
 	}
-	pub, err := release.LoadTrustedPublicKey()
+	var pub ed25519.PublicKey
+	var err error
+	if trustKeyFile != "" {
+		pub, err = release.LoadPublicKeyFromFile(trustKeyFile)
+	} else {
+		pub, err = release.LoadTrustedPublicKey()
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 3
 	}
-	if err := release.InstallFromPaths(manifestPath, sigPath, binPath, pub, release.DefaultInstallOptions()); err != nil {
+	ch, err := release.ParseChannel(channelStr)
+	if err != nil && channelStr != "" {
+		fmt.Fprintln(stderr, err.Error())
+		return 64
+	}
+	if channelStr == "" {
+		ch = release.Channel(release.ChannelName)
+	}
+	if err := release.InstallRelease(release.InstallReleaseRequest{
+		ManifestPath:       manifestPath,
+		SignaturePath:      sigPath,
+		ArtifactPath:       binPath,
+		PublicKey:          pub,
+		Opts:               release.DefaultInstallOptions(),
+		ReleaseBase:        releaseBase,
+		Channel:            ch,
+		ExpectedVersion:    version,
+		SourceTrustKeyFile: trustKeyFile,
+	}); err != nil {
 		fmt.Fprintf(stderr, "install failed: %v\n", err)
 		return 3
 	}

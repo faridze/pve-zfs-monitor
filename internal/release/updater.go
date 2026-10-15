@@ -3,24 +3,30 @@ package release
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // Updater performs verified download and atomic installation.
 type Updater struct {
-	Client           HTTPClient
+	Secure           SecureHTTPClient
+	Client           HTTPClient // optional test override for manifest and artifact fetches
 	PublicKey        ed25519.PublicKey
 	Current          Info
 	Channel          Channel
-	VersionPin       string // empty or "latest"
+	VersionPin       string
 	InstallOpts      InstallOptions
 	LockPath         string
 	ExecutableGOOS   string
 	ExecutableGOARCH string
+}
+
+func (u *Updater) lockPath() string {
+	if u.LockPath != "" {
+		return u.LockPath
+	}
+	return installLockPath()
 }
 
 // CheckForUpdate fetches and plans an upgrade without modifying the system.
@@ -29,7 +35,7 @@ func (u *Updater) CheckForUpdate(ctx context.Context) (*UpdatePlan, []byte, *Sig
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	manifest, raw, sig, err := FetchChannelManifest(ctx, u.Client, urls, u.PublicKey)
+	manifest, raw, sig, err := FetchChannelManifest(ctx, u.httpClient(MaxManifestBodyBytes), urls, u.PublicKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -45,16 +51,25 @@ func (u *Updater) CheckForUpdate(ctx context.Context) (*UpdatePlan, []byte, *Sig
 	return plan, raw, sig, nil
 }
 
-// ApplyUpdate downloads, verifies, and atomically installs. dryRun stops before install.
+// ApplyUpdate downloads, verifies, and atomically installs. dryRun verifies artifact without replacing binary.
 func (u *Updater) ApplyUpdate(ctx context.Context, plan *UpdatePlan, dryRun bool) error {
 	if plan == nil {
 		return fmt.Errorf("missing update plan")
 	}
-	lock, err := AcquireUpdateLock(u.LockPath)
+	lock, err := AcquireUpdateLock(u.lockPath())
 	if err != nil {
 		return err
 	}
 	defer lock.Release()
+
+	if err := ValidateArtifactFilename(plan.Artifact.Filename); err != nil {
+		return err
+	}
+	if plan.Artifact.URL != "" {
+		if err := ValidateHTTPSURL(plan.Artifact.URL); err != nil {
+			return err
+		}
+	}
 
 	tmpDir, err := os.MkdirTemp(filepath.Dir(u.InstallOpts.TargetPath), "pve-zfs-monitor-dl-*")
 	if err != nil {
@@ -63,7 +78,7 @@ func (u *Updater) ApplyUpdate(ctx context.Context, plan *UpdatePlan, dryRun bool
 	defer os.RemoveAll(tmpDir)
 
 	staged := filepath.Join(tmpDir, plan.Artifact.Filename)
-	if err := DownloadArtifact(ctx, u.Client, plan.Artifact, staged); err != nil {
+	if err := DownloadArtifact(ctx, u.httpClient(MaxArtifactBodyBytes), plan.Artifact, staged); err != nil {
 		return err
 	}
 	if err := VerifyArtifactFile(staged, plan.Artifact); err != nil {
@@ -72,35 +87,76 @@ func (u *Updater) ApplyUpdate(ctx context.Context, plan *UpdatePlan, dryRun bool
 	if dryRun {
 		return nil
 	}
-	return AtomicInstall(staged, u.InstallOpts)
+	return atomicInstallUnlocked(staged, u.InstallOpts)
 }
 
-// InstallFromPaths verifies a local manifest/signature and staged binary (bootstrap installer).
+// InstallReleaseRequest describes a verified local install/bootstrap.
+type InstallReleaseRequest struct {
+	ManifestPath       string
+	SignaturePath      string
+	ArtifactPath       string
+	PublicKey          ed25519.PublicKey
+	Opts               InstallOptions
+	ReleaseBase        string
+	Channel            Channel
+	ExpectedVersion    string
+	SourceTrustKeyFile string
+}
+
+// InstallRelease verifies a local bundle, installs atomically, and persists release configuration.
+func InstallRelease(req InstallReleaseRequest) error {
+	if _, _, err := VerifyLocalBundle(LocalBundleVerifyOptions{
+		ManifestPath:    req.ManifestPath,
+		SignaturePath:   req.SignaturePath,
+		ArtifactPath:    req.ArtifactPath,
+		PublicKey:       req.PublicKey,
+		ExpectedChannel: req.Channel,
+		ExpectedVersion: req.ExpectedVersion,
+	}); err != nil {
+		return err
+	}
+	lock, err := AcquireUpdateLock(installLockPath())
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	if err := atomicInstallUnlocked(req.ArtifactPath, req.Opts); err != nil {
+		return err
+	}
+	if req.ReleaseBase != "" && req.SourceTrustKeyFile != "" {
+		if err := WritePersistedConfig(PersistedConfig{
+			ReleaseBase: stringsTrimRight(req.ReleaseBase),
+			Channel:     req.Channel,
+		}, req.SourceTrustKeyFile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stringsTrimRight(s string) string {
+	for len(s) > 0 && s[len(s)-1] == '/' {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+func (u *Updater) httpClient(max int64) HTTPClient {
+	if u.Client != nil {
+		return u.Client
+	}
+	return boundedClient{u.Secure, max}
+}
+
+// InstallFromPaths verifies a local manifest/signature and staged binary.
 func InstallFromPaths(manifestPath, sigPath, binaryPath string, pub ed25519.PublicKey, opts InstallOptions) error {
-	raw, err := os.ReadFile(manifestPath)
+	_, _, err := VerifyLocalBundle(LocalBundleVerifyOptions{
+		ManifestPath:  manifestPath,
+		SignaturePath: sigPath,
+		ArtifactPath:  binaryPath,
+		PublicKey:     pub,
+	})
 	if err != nil {
-		return err
-	}
-	sigRaw, err := os.ReadFile(sigPath)
-	if err != nil {
-		return err
-	}
-	var env SignatureEnvelope
-	if err := json.Unmarshal(sigRaw, &env); err != nil {
-		return err
-	}
-	if err := VerifyManifestSignature(raw, &env, pub); err != nil {
-		return err
-	}
-	m, err := ParseManifest(raw)
-	if err != nil {
-		return err
-	}
-	art, err := m.SelectArtifact(runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return err
-	}
-	if err := VerifyArtifactFile(binaryPath, *art); err != nil {
 		return err
 	}
 	return AtomicInstall(binaryPath, opts)

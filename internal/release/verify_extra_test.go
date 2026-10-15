@@ -28,6 +28,7 @@ func TestInvalidChecksumRejected(t *testing.T) {
 func TestFailedActivationPreservesInstalledBinary(t *testing.T) {
 	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
 	dir := t.TempDir()
+	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	target := filepath.Join(dir, "pve-zfs-monitor")
 	opts := InstallOptions{TargetPath: target, RollbackPath: target + RollbackSuffix, ExpectedName: "pve-zfs-monitor"}
 	orig := filepath.Join(dir, "orig")

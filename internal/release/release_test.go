@@ -39,7 +39,7 @@ func TestCompareSemverAndDowngrade(t *testing.T) {
 	}
 	_, err := PlanUpdate(Info{Version: "2.0.0", Channel: "stable"}, &Manifest{
 		Version: "1.0.0", Channel: ChannelStable,
-		Artifacts: []Artifact{{Filename: "b", GOOS: "linux", GOARCH: "amd64", SHA256: "00", Size: 1, URL: "http://x"}},
+		Artifacts: []Artifact{{Filename: "b", GOOS: "linux", GOARCH: "amd64", SHA256: "00", Size: 1, URL: "https://x.example/b"}},
 	}, "linux", "amd64", false)
 	if err == nil || !strings.Contains(err.Error(), "downgrade") {
 		t.Fatalf("expected downgrade rejection, got %v", err)
@@ -60,6 +60,7 @@ func TestInvalidManifestAndSignature(t *testing.T) {
 func TestInstallAtomicAndRollback(t *testing.T) {
 	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
 	dir := t.TempDir()
+	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	target := filepath.Join(dir, "pve-zfs-monitor")
 	opts := InstallOptions{TargetPath: target, RollbackPath: target + RollbackSuffix, ExpectedName: "pve-zfs-monitor"}
 	staged := filepath.Join(dir, "newbin")
@@ -87,6 +88,7 @@ func TestInstallAtomicAndRollback(t *testing.T) {
 func TestRefuseUnexpectedSymlink(t *testing.T) {
 	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
 	dir := t.TempDir()
+	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	link := filepath.Join(dir, "pve-zfs-monitor")
 	if err := os.Symlink("/bin/sh", link); err != nil {
 		t.Fatal(err)
@@ -101,6 +103,7 @@ func TestRefuseUnexpectedSymlink(t *testing.T) {
 func TestUpdateFlowWithHTTPServer(t *testing.T) {
 	pub, _ := testSigningKeypair()
 	t.Setenv("PVE_ZFS_MONITOR_TRUST_KEY_FILE", writePubKeyFile(t, pub))
+	t.Setenv("PVE_ZFS_MONITOR_RELEASE_BASE", "https://releases.example.test")
 	bin := []byte{0x7f, 'E', 'L', 'F'}
 	sum := sha256Hex(bin)
 	manifest := Manifest{
@@ -115,15 +118,17 @@ func TestUpdateFlowWithHTTPServer(t *testing.T) {
 			GOARCH:   "amd64",
 			SHA256:   sum,
 			Size:     int64(len(bin)),
-			URL:      "/artifact",
+			URL:      "https://releases.example.test/artifact",
 		}},
 	}
 	raw, _ := json.Marshal(manifest)
 	sig := signManifestJSON(t, raw)
 	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
 	dir := t.TempDir()
+	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "update.lock"))
 	target := filepath.Join(dir, "pve-zfs-monitor")
 	up := Updater{
+		LockPath: filepath.Join(dir, "update.lock"),
 		Client: staticHTTP{
 			"/manifest.json":          raw,
 			"/manifest.json.sig.json": sig,
@@ -146,7 +151,7 @@ func TestUpdateFlowWithHTTPServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.Artifact.URL = "/artifact"
+	plan.Artifact.URL = "https://releases.example.test/artifact"
 	if err := up.ApplyUpdate(context.Background(), plan, false); err != nil {
 		t.Fatal(err)
 	}
