@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/faridze/pve-zfs-monitor/internal/device"
 	"github.com/faridze/pve-zfs-monitor/internal/zfs"
 )
 
@@ -20,22 +21,23 @@ func testRuntime(pools []zfs.Pool, err error) runtimeConfig {
 		collectTopology: func(context.Context) (*zfs.TopologyReport, error) {
 			return &zfs.TopologyReport{}, nil
 		},
+		collectDevices: func(context.Context) (*device.DeviceReport, error) {
+			return &device.DeviceReport{}, nil
+		},
 		timeout: time.Second,
 	}
 }
 
 func TestTopologyJSONCommand(t *testing.T) {
-	cfg := runtimeConfig{
-		collectTopology: func(context.Context) (*zfs.TopologyReport, error) {
-			return &zfs.TopologyReport{
-				Pools: []zfs.PoolTopology{{
-					Name:  "rpool",
-					State: "ONLINE",
-					Root:  &zfs.VdevNode{Name: "rpool", State: "ONLINE", VdevClass: "pool"},
-				}},
-			}, nil
-		},
-		timeout: time.Second,
+	cfg := testRuntime(nil, nil)
+	cfg.collectTopology = func(context.Context) (*zfs.TopologyReport, error) {
+		return &zfs.TopologyReport{
+			Pools: []zfs.PoolTopology{{
+				Name:  "rpool",
+				State: "ONLINE",
+				Root:  &zfs.VdevNode{Name: "rpool", State: "ONLINE", VdevClass: "pool"},
+			}},
+		}, nil
 	}
 	var out, errOut bytes.Buffer
 	code := runWith(cfg, []string{"topology", "--json"}, &out, &errOut)
@@ -48,6 +50,20 @@ func TestTopologyJSONCommand(t *testing.T) {
 	}
 	if len(report.Pools) != 1 || report.Pools[0].Name != "rpool" {
 		t.Fatalf("report: %#v", report)
+	}
+}
+
+func TestDevicesJSONCommand(t *testing.T) {
+	cfg := runtimeConfig{
+		collectDevices: func(context.Context) (*device.DeviceReport, error) {
+			return &device.DeviceReport{MemberMappings: []device.MemberMapping{{Outcome: device.MappingMissing}}}, nil
+		},
+		timeout: time.Second,
+	}
+	var out, errOut bytes.Buffer
+	code := runWith(cfg, []string{"devices", "--json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("devices exit=%d err=%q", code, errOut.String())
 	}
 }
 
