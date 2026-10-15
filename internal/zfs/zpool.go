@@ -6,10 +6,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
+
+	"github.com/faridze/pve-zfs-monitor/internal/cmdrun"
 )
+
+// ZpoolPath is the fixed read-only zpool binary location on Proxmox hosts.
+const ZpoolPath = "/usr/sbin/zpool"
+
+var zpoolListHealthArgs = []string{"list", "-H", "-o", "name,health"}
+
+// DefaultCollector is the production pool list collector.
+var DefaultCollector = NewPoolCollector(cmdrun.NewOSRunner(cmdrun.DefaultLimits()))
 
 type Pool struct {
 	Name   string `json:"name"`
@@ -33,6 +41,17 @@ func (r Result) Label() string {
 	default:
 		return "unknown"
 	}
+}
+
+// PoolCollector lists pool health using a fixed read-only zpool invocation.
+type PoolCollector struct {
+	Runner cmdrun.Runner
+}
+
+// NewPoolCollector returns a collector that uses runner for command execution.
+// Production callers must not vary zpool arguments; only Runner is injectable for tests.
+func NewPoolCollector(runner cmdrun.Runner) *PoolCollector {
+	return &PoolCollector{Runner: runner}
 }
 
 // Assess never treats an unfamiliar health value as healthy.
@@ -88,17 +107,35 @@ func ParseList(output []byte) ([]Pool, error) {
 
 // ListPools invokes a fixed read-only command. No shell, network or mutation.
 func ListPools(ctx context.Context) ([]Pool, error) {
-	const command = "/usr/sbin/zpool"
-	if info, err := os.Stat(command); err != nil || info.IsDir() {
-		return nil, fmt.Errorf("%s not available", command)
-	}
-	cmd := exec.CommandContext(ctx, command, "list", "-H", "-o", "name,health")
-	output, err := cmd.CombinedOutput()
+	return DefaultCollector.ListPools(ctx)
+}
+
+// ListPools runs the configured read-only zpool list command.
+func (c *PoolCollector) ListPools(ctx context.Context) ([]Pool, error) {
+	out, err := c.Runner.Run(ctx, ZpoolPath, zpoolListHealthArgs)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("zpool timed out: %w", ctx.Err())
-		}
-		return nil, fmt.Errorf("zpool list failed: %w", err)
+		return nil, mapListPoolsError(err)
 	}
-	return ParseList(output)
+	return ParseList(out.Stdout)
+}
+
+func mapListPoolsError(err error) error {
+	var runErr *cmdrun.Error
+	if !errors.As(err, &runErr) {
+		return fmt.Errorf("zpool list failed: %w", err)
+	}
+	switch runErr.Kind {
+	case cmdrun.NotAvailable:
+		return fmt.Errorf("%s not available", runErr.Path)
+	case cmdrun.Timeout:
+		return fmt.Errorf("zpool timed out: %w", runErr.Cause)
+	case cmdrun.Truncated:
+		return fmt.Errorf("zpool list output truncated")
+	case cmdrun.ReadError:
+		return fmt.Errorf("zpool list failed: %w", runErr)
+	case cmdrun.ExitError:
+		return fmt.Errorf("zpool list failed: %w", runErr)
+	default:
+		return fmt.Errorf("zpool list failed: %w", err)
+	}
 }
