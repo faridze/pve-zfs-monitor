@@ -1,0 +1,18 @@
+{
+  "smart_status": {
+    "passed": false,
+    "status": { "string": "FAILED" }
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 4,
+    "temperature": 75,
+    "available_spare": 5,
+    "available_spare_threshold": 10,
+    "percentage_used": 98,
+    "media_errors": 12,
+    "num_err_log_entries": 3,
+    "power_on_hours": 50000,
+    "unsafe_shutdowns": 20,
+    "power_cycles": 800
+  }
+}

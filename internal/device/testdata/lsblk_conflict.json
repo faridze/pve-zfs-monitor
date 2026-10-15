@@ -1,0 +1,26 @@
+{
+  "blockdevices": [
+    {
+      "name": "sda",
+      "kname": "sda",
+      "path": "/dev/sda",
+      "type": "disk",
+      "size": "1000000000",
+      "model": "DISK_A",
+      "serial": "SERIAL_X",
+      "wwn": "wwn-0x111",
+      "tran": "sata"
+    },
+    {
+      "name": "sdb",
+      "kname": "sdb",
+      "path": "/dev/sdb",
+      "type": "disk",
+      "size": "1000000000",
+      "model": "DISK_B",
+      "serial": "SERIAL_Y",
+      "wwn": "wwn-0x222",
+      "tran": "sata"
+    }
+  ]
+}

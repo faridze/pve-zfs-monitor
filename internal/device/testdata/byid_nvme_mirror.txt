@@ -1,0 +1,4 @@
+nvme-eui.abc111 -> /dev/nvme0n1p3
+nvme-eui.abc222 -> /dev/nvme1n1p3
+nvme-Samsung_SSD_990_PRO_1TB_S6B0NS0T123456 -> /dev/nvme0n1
+nvme-Samsung_SSD_990_PRO_1TB_S6B0NS0T654321 -> /dev/nvme1n1
