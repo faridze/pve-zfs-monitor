@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -113,6 +114,7 @@ func (r *OSRunner) Run(ctx context.Context, path string, args []string) (Output,
 	}
 
 	cmd := exec.CommandContext(ctx, path, args...)
+	configureCmd(cmd)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return Output{}, fmt.Errorf("stdout pipe: %w", err)
@@ -136,11 +138,18 @@ func (r *OSRunner) Run(ctx context.Context, path string, args []string) (Output,
 	var killOnce sync.Once
 	killProcess := func() {
 		killOnce.Do(func() {
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
+			_ = terminateCmd(cmd)
 		})
 	}
+	stopCtxWatch := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killProcess()
+		case <-stopCtxWatch:
+		}
+	}()
+	defer close(stopCtxWatch)
 
 	var stdoutRead, stderrRead streamRead
 	var wg sync.WaitGroup
@@ -243,22 +252,16 @@ func readBounded(r io.Reader, max int, onExceeded func()) streamRead {
 	truncated := false
 	for {
 		n, err := r.Read(scratch)
-		if n > 0 {
-			if !truncated {
-				remaining := max - buf.Len()
+		if n > 0 && !truncated {
+			remaining := max - buf.Len()
+			if n > remaining {
 				if remaining > 0 {
-					if n > remaining {
-						buf.Write(scratch[:remaining])
-						truncated = true
-						onExceeded()
-					} else {
-						buf.Write(scratch[:n])
-					}
+					buf.Write(scratch[:remaining])
 				}
-				if buf.Len() >= max {
-					truncated = true
-					onExceeded()
-				}
+				truncated = true
+				onExceeded()
+			} else {
+				buf.Write(scratch[:n])
 			}
 		}
 		if err != nil {
@@ -290,10 +293,17 @@ func trimForMessage(stderr []byte) string {
 		b.WriteRune(r)
 	}
 	s := strings.TrimSpace(b.String())
-	if len(s) > maxStderrMessageRunes {
-		return s[:maxStderrMessageRunes] + "..."
+	if utf8.RuneCountInString(s) <= maxStderrMessageRunes {
+		return s
 	}
-	return s
+	runes := make([]rune, 0, maxStderrMessageRunes)
+	for _, r := range s {
+		if len(runes) >= maxStderrMessageRunes {
+			break
+		}
+		runes = append(runes, r)
+	}
+	return string(runes) + "..."
 }
 
 func min(a, b int) int {
