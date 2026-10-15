@@ -36,7 +36,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 64
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pools, err := zfs.ListPools(ctx)
 	if err != nil {
