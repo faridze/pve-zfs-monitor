@@ -13,8 +13,6 @@ import (
 	"github.com/faridze/pve-zfs-monitor/internal/zfs"
 )
 
-var version = "dev"
-
 type runtimeConfig struct {
 	listPools       func(context.Context) ([]zfs.Pool, error)
 	collectTopology func(context.Context) (*zfs.TopologyReport, error)
@@ -43,12 +41,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func runWith(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|topology|devices|version> [--json]")
+		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|topology|devices|version|update|rollback|install-release> [flags]")
 		return 0
 	}
-	if args[0] == "version" && len(args) == 1 {
-		fmt.Fprintln(stdout, version)
-		return 0
+	if args[0] == "version" {
+		return runVersion(args[1:], stdout, stderr)
+	}
+	if args[0] == "update" {
+		return runUpdate(args[1:], stdout, stderr)
+	}
+	if args[0] == "rollback" {
+		return runRollback(stdout, stderr)
+	}
+	if args[0] == "install-release" {
+		return runInstallRelease(args[1:], stdout, stderr)
 	}
 	if args[0] == "topology" {
 		return runTopology(cfg, args, stdout, stderr)
