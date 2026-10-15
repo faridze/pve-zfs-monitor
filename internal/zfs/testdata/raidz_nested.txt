@@ -1,0 +1,19 @@
+  pool: data
+ state: ONLINE
+  scan: resilvered 35.6G in 00:08:47 with 0 errors on Wed Oct  1 14:00:00 2025
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	data        ONLINE       0     0     0
+	  mirror-0  ONLINE       0     0     0
+	    raidz1-0  ONLINE       0     0     0
+	      sda     ONLINE       0     0     0
+	      sdb     ONLINE       0     0     0
+	      sdc     ONLINE       0     0     0
+	    raidz2-0  ONLINE       0     0     0
+	      sdd     ONLINE       0     0     0
+	      sde     ONLINE       0     0     0
+	      sdf     ONLINE       0     0     0
+	      sdg     ONLINE       0     0     0
+
+errors: No known data errors

@@ -17,7 +17,45 @@ func testRuntime(pools []zfs.Pool, err error) runtimeConfig {
 		listPools: func(context.Context) ([]zfs.Pool, error) {
 			return pools, err
 		},
+		collectTopology: func(context.Context) (*zfs.TopologyReport, error) {
+			return &zfs.TopologyReport{}, nil
+		},
 		timeout: time.Second,
+	}
+}
+
+func TestTopologyJSONCommand(t *testing.T) {
+	cfg := runtimeConfig{
+		collectTopology: func(context.Context) (*zfs.TopologyReport, error) {
+			return &zfs.TopologyReport{
+				Pools: []zfs.PoolTopology{{
+					Name:  "rpool",
+					State: "ONLINE",
+					Root:  &zfs.VdevNode{Name: "rpool", State: "ONLINE", VdevClass: "pool"},
+				}},
+			}, nil
+		},
+		timeout: time.Second,
+	}
+	var out, errOut bytes.Buffer
+	code := runWith(cfg, []string{"topology", "--json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("topology exit=%d err=%q", code, errOut.String())
+	}
+	var report zfs.TopologyReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if len(report.Pools) != 1 || report.Pools[0].Name != "rpool" {
+		t.Fatalf("report: %#v", report)
+	}
+}
+
+func TestTopologyRequiresJSON(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := runWith(testRuntime(nil, nil), []string{"topology"}, &out, &errOut)
+	if code != 64 {
+		t.Fatalf("exit=%d want 64", code)
 	}
 }
 

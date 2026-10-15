@@ -8,6 +8,7 @@ Lightweight Go-based ZFS and NVMe health monitoring for Proxmox VE, with planned
 
 - Small read-only Go CLI checking health states of local ZFS pools.
 - `status` and `check` commands, with optional `--json`.
+- `topology --json` for read-only ZFS vdev topology, error counters and scrub metadata (diagnostic).
 - No daemon, no port, no installation hooks, no disk or pool changes.
 - Zero third-party Go dependencies.
 

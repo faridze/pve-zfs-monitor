@@ -1,0 +1,14 @@
+  pool: rpool
+ state: ONLINE
+  scan: scrub repaired 0B in 00:12:34 with 0 errors on Wed Oct  1 12:00:00 2025
+config:
+
+	NAME                                          STATE     READ WRITE CKSUM
+	rpool                                         ONLINE       0     0     0
+	  mirror-0                                    ONLINE       0     0     0
+	    nvme-eui.abc111                             ONLINE       0     0     0
+	      /dev/nvme0n1                              ONLINE       0     0     0
+	    nvme-eui.abc222                             ONLINE       0     0     0
+	      /dev/nvme1n1                              ONLINE       0     0     0
+
+errors: No known data errors

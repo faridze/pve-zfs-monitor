@@ -1,0 +1,12 @@
+  pool: legacy
+ state: ONLINE
+ scrub: scrub completed after 0h5m with 0 errors on Wed Oct  1 10:00:00 2025
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	legacy      ONLINE       0     0     0
+	  mirror-0  ONLINE       0     0     0
+	    sda       ONLINE       0     0     0
+	    sdb       ONLINE       0     0     0
+
+errors: No known data errors

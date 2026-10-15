@@ -1,0 +1,12 @@
+  pool: tank
+ state: DEGRADED
+  scan: scrub repaired 1.2G in 01:00:00 with 3 errors on Wed Oct  1 12:00:00 2025
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	tank        DEGRADED     0     0     0
+	  mirror-0  DEGRADED     4     2     1
+	    sda     FAULTED      4     2     1
+	    sdb     REMOVED      0     0     0
+
+errors: Permanent errors have been detected in the pool.
