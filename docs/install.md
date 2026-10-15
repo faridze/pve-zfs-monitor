@@ -22,24 +22,28 @@ Private signing keys must never appear in git, PR CI, or downloadable archives.
 Install path: `/usr/local/bin/pve-zfs-monitor`  
 Rollback copy: `/usr/local/bin/pve-zfs-monitor.previous`
 
-## One-time install (two-step curl)
+## One-time install (curl bootstrap)
+
+Obtain the **reviewed** ed25519 public key and an **out-of-band** SHA-256 digest of `install.sh` from the maintainer (not from the release host alone).
 
 ```bash
-export PVE_ZFS_MONITOR_RELEASE_BASE="https://example.invalid/releases"   # maintainer-provided HTTPS base
+export PVE_ZFS_MONITOR_RELEASE_BASE="https://example.invalid/releases"   # maintainer HTTPS base
 export PVE_ZFS_MONITOR_TRUST_KEY_FILE="/path/to/reviewed-signing-key.pub.b64"
 
-curl -fsSL -o install.sh "$PVE_ZFS_MONITOR_RELEASE_BASE/scripts/install.sh"
-# When published, verify install.sh with maintainer-supplied checksum file:
-# curl -fsSL -o install.sh.sha256 ... && sha256sum -c install.sh.sha256
+curl --proto '=https' --tlsv1.2 --proto-redir '=https' -fsSL \
+  -o install.sh "$PVE_ZFS_MONITOR_RELEASE_BASE/scripts/install.sh"
+# Maintainer-supplied digest (example):
+# sha256sum -c install.sh.sha256
 
-sudo bash install.sh --channel lab --version 1.0.0-rc1 \
+sudo INSTALLER_SHA256="<maintainer-hex-digest>" bash install.sh \
+  --channel lab --version 1.0.0-rc1 \
   --release-base "$PVE_ZFS_MONITOR_RELEASE_BASE" \
   --trust-key-file "$PVE_ZFS_MONITOR_TRUST_KEY_FILE"
 ```
 
-Bootstrap (no existing binary): `install.sh` downloads manifest, signature, and artifact, then **`verify_release.py` + OpenSSL** authenticate the pinned Ed25519 key and SHA-256 **before any execution**. Only then does `atomic-install.sh` copy the verified bytes into place and `persist-release-config.sh` writes `/etc/pve-zfs-monitor/release.conf`. The downloaded artifact is never executed during bootstrap.
+`install.sh` is **self-contained**: embedded Python + OpenSSL verify the signed manifest and artifact SHA-256/size **before** any downloaded bytes are activated. It does not download or execute separate helper scripts. Under `/run/lock/pve-zfs-monitor.lock` it persists `/etc/pve-zfs-monitor/release.conf` and the trust key, then atomically installs the verified binary. The downloaded artifact is never executed during bootstrap.
 
-If `pve-zfs-monitor` is already installed, `install-release` performs the same verification in-process and updates persisted config.
+Offline or in-process installs may use `pve-zfs-monitor install-release` with the same verification rules.
 
 ## Version
 
@@ -56,7 +60,7 @@ Development builds show `(development; not a trusted release)` and `trusted_rele
 pve-zfs-monitor update --check
 ```
 
-Requires `PVE_ZFS_MONITOR_RELEASE_BASE` (or build-time default) and trusted public key configuration.
+After install, release base URL and trust key are read from `/etc/pve-zfs-monitor/release.conf` (no environment variables required in a fresh shell).
 
 ## Apply update
 

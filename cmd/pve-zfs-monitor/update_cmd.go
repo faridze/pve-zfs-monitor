@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -70,6 +71,10 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	plan, _, _, err := up.CheckForUpdate(ctx)
+	if errors.Is(err, release.ErrUpToDate) {
+		fmt.Fprintf(stdout, "already up to date: %s\n", current.Version)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "update check failed: %v\n", err)
 		return 3

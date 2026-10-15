@@ -36,6 +36,9 @@ func configFilePath() string {
 // LoadPersistedConfig reads validated release configuration from disk.
 func LoadPersistedConfig() (*PersistedConfig, error) {
 	path := configFilePath()
+	if err := assertSecureConfigPath(path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -50,7 +53,7 @@ func LoadPersistedConfig() (*PersistedConfig, error) {
 	if strings.TrimSpace(cfg.TrustKeyPath) == "" {
 		return nil, fmt.Errorf("missing trust_key_path")
 	}
-	if err := assertRootOwned(path); err != nil {
+	if err := assertSecureConfigPath(cfg.TrustKeyPath); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
@@ -67,23 +70,9 @@ func validatePersistedConfig(cfg *PersistedConfig) error {
 		return fmt.Errorf("invalid channel %q", cfg.Channel)
 	}
 	if cfg.TrustKeyPath != "" {
-		if err := assertRootOwned(cfg.TrustKeyPath); err != nil {
-			return err
+		if filepath.Clean(cfg.TrustKeyPath) != cfg.TrustKeyPath {
+			return fmt.Errorf("invalid trust_key_path")
 		}
-	}
-	return nil
-}
-
-func assertRootOwned(path string) error {
-	if os.Getenv("PVE_ZFS_MONITOR_TEST_INSTALL") == "1" {
-		return nil
-	}
-	st, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if st.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("%s must not be world/group writable", path)
 	}
 	return nil
 }
@@ -93,15 +82,21 @@ func WritePersistedConfig(cfg PersistedConfig, sourceTrustKeyFile string) error 
 	if err := validatePersistedConfig(&cfg); err != nil {
 		return err
 	}
+	if err := rejectSymlink(sourceTrustKeyFile); err != nil {
+		return err
+	}
 	dir := ConfigDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := assertSecureParentDir(dir); err != nil {
 		return err
 	}
 	destKey := filepath.Join(dir, defaultTrustFile)
 	if err := copyFile(sourceTrustKeyFile, destKey); err != nil {
 		return err
 	}
-	if err := os.Chmod(destKey, 0o644); err != nil {
+	if err := finalizeConfigFileMode(destKey); err != nil {
 		return err
 	}
 	cfg.TrustKeyPath = destKey
@@ -113,7 +108,14 @@ func WritePersistedConfig(cfg PersistedConfig, sourceTrustKeyFile string) error 
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, configFilePath())
+	if err := finalizeConfigFileMode(tmp); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, configFilePath()); err != nil {
+		return err
+	}
+	return finalizeConfigFileMode(configFilePath())
 }
 
 // ResolveReleaseBase returns configured HTTPS release base URL.

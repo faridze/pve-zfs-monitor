@@ -116,7 +116,7 @@ func PlanUpdate(current Info, remote *Manifest, goos, goarch string, allowDowngr
 		return nil, fmt.Errorf("refusing downgrade from %s to %s", current.Version, remote.Version)
 	}
 	if cmp == 0 {
-		return nil, fmt.Errorf("already at version %s", current.Version)
+		return nil, ErrUpToDate
 	}
 	art, err := remote.SelectArtifact(goos, goarch)
 	if err != nil {

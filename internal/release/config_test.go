@@ -8,7 +8,6 @@ import (
 )
 
 func TestPersistedConfigEnablesUpdateWithoutEnv(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_CONFIG_DIR", dir)
 	pub, _ := testSigningKeypair()

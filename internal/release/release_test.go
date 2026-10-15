@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,6 +31,16 @@ func TestVersionMetadataDevelopment(t *testing.T) {
 	}
 	if info.TrustedRelease {
 		t.Fatal("dev build must not be trusted")
+	}
+}
+
+func TestPlanUpdateUpToDate(t *testing.T) {
+	_, err := PlanUpdate(Info{Version: "1.0.0-rc2", Channel: "lab"}, &Manifest{
+		Version: "1.0.0-rc2", Channel: ChannelLab,
+		Artifacts: []Artifact{{Filename: "b", GOOS: "linux", GOARCH: "amd64", SHA256: "00", Size: 1, URL: "https://x.example/b"}},
+	}, "linux", "amd64", false)
+	if !errors.Is(err, ErrUpToDate) {
+		t.Fatalf("expected ErrUpToDate, got %v", err)
 	}
 }
 

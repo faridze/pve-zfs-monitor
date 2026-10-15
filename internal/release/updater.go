@@ -120,9 +120,6 @@ func InstallRelease(req InstallReleaseRequest) error {
 		return err
 	}
 	defer lock.Release()
-	if err := atomicInstallUnlocked(req.ArtifactPath, req.Opts); err != nil {
-		return err
-	}
 	if req.ReleaseBase != "" && req.SourceTrustKeyFile != "" {
 		if err := WritePersistedConfig(PersistedConfig{
 			ReleaseBase: stringsTrimRight(req.ReleaseBase),
@@ -131,7 +128,7 @@ func InstallRelease(req InstallReleaseRequest) error {
 			return err
 		}
 	}
-	return nil
+	return atomicInstallUnlocked(req.ArtifactPath, req.Opts)
 }
 
 func stringsTrimRight(s string) string {
