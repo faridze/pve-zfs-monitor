@@ -47,8 +47,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	result := zfs.Assess(pools)
 	if len(args) == 2 {
 		if err := json.NewEncoder(stdout).Encode(struct {
-			Pools\t[]zfs.Pool\t`json:"pools"`
-			Overall\tstring\t`json:"overall"`
+			Pools	[]zfs.Pool	`json:"pools"`
+			Overall	string	`json:"overall"`
 		}{pools, result.Label()}); err != nil {
 			fmt.Fprintf(stderr, "failed to encode status: %v\n", err)
 			return 3

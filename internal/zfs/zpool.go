@@ -12,16 +12,16 @@ import (
 )
 
 type Pool struct {
-	Name\tstring\t`json:"name"`
-	Health\tstring\t`json:"health"`
+	Name	string	`json:"name"`
+	Health	string	`json:"health"`
 }
 
 type Result int
 
 const (
-	Healthy\tResult = 0
-	Unhealthy\tResult = 2
-	Unknown\tResult = 3
+	Healthy	Result = 0
+	Unhealthy	Result = 2
+	Unknown	Result = 3
 )
 
 func (r Result) Label() string {

@@ -25,8 +25,8 @@ func TestParseListRejectsIncompleteOrDuplicate(t *testing.T) {
 
 func TestAssessFailClosed(t *testing.T) {
 	for _, tc := range []struct {
-		health\tstring
-		want\tResult
+		health	string
+		want	Result
 	}{
 		{"ONLINE", Healthy},
 		{"DEGRADED", Unhealthy},
