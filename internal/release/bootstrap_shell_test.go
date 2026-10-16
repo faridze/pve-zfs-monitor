@@ -135,6 +135,7 @@ func TestInstallScriptBootstrapFromEmptyDir(t *testing.T) {
 	if err != nil || string(got) != string(bin) {
 		t.Fatalf("binary not installed: err=%v got=%q", err, got)
 	}
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	t.Setenv("PVE_ZFS_MONITOR_CONFIG_DIR", confDir)
 	cfg, err := LoadPersistedConfig()
 	if err != nil {
