@@ -87,20 +87,22 @@ func (u *Updater) ApplyUpdate(ctx context.Context, plan *UpdatePlan, dryRun bool
 	if dryRun {
 		return nil
 	}
-	return atomicInstallUnlocked(staged, u.InstallOpts)
+	_, err = atomicInstallUnlocked(staged, u.InstallOpts)
+	return err
 }
 
 // InstallReleaseRequest describes a verified local install/bootstrap.
 type InstallReleaseRequest struct {
-	ManifestPath       string
-	SignaturePath      string
-	ArtifactPath       string
-	PublicKey          ed25519.PublicKey
-	Opts               InstallOptions
-	ReleaseBase        string
-	Channel            Channel
-	ExpectedVersion    string
-	SourceTrustKeyFile string
+	ManifestPath          string
+	SignaturePath         string
+	ArtifactPath          string
+	PublicKey             ed25519.PublicKey
+	Opts                  InstallOptions
+	ReleaseBase           string
+	Channel               Channel
+	ExpectedVersion       string
+	SourceTrustKeyFile    string
+	AllowTrustKeyRotation bool
 }
 
 // InstallRelease verifies a local bundle, installs atomically, and persists release configuration.
@@ -121,6 +123,10 @@ func InstallRelease(req InstallReleaseRequest) error {
 	}
 	defer lock.Release()
 
+	if err := validatePersistedTrustAnchor(req); err != nil {
+		return err
+	}
+
 	var snap *persistedConfigSnapshot
 	if req.ReleaseBase != "" && req.SourceTrustKeyFile != "" && !shouldSkipConfigRewrite(req) {
 		snap, err = backupPersistedReleaseConfig()
@@ -135,8 +141,9 @@ func InstallRelease(req InstallReleaseRequest) error {
 			return err
 		}
 	}
-	if err := atomicInstallUnlocked(req.ArtifactPath, req.Opts); err != nil {
-		if snap != nil {
+	activated, err := atomicInstallUnlocked(req.ArtifactPath, req.Opts)
+	if err != nil {
+		if !activated && snap != nil {
 			_ = snap.Restore()
 		}
 		return err

@@ -62,42 +62,56 @@ func AtomicInstall(stagedBinary string, opts InstallOptions) error {
 		return err
 	}
 	defer lock.Release()
-	return atomicInstallUnlocked(stagedBinary, opts)
+	_, err = atomicInstallUnlocked(stagedBinary, opts)
+	return err
 }
 
-func atomicInstallUnlocked(stagedBinary string, opts InstallOptions) error {
+func atomicInstallUnlocked(stagedBinary string, opts InstallOptions) (bool, error) {
 	if err := ValidateInstallTarget(opts.TargetPath); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.Chmod(stagedBinary, 0o755); err != nil {
-		return err
+		return false, err
 	}
 	dir := filepath.Dir(opts.TargetPath)
 	staging := filepath.Join(dir, "."+opts.ExpectedName+".staging")
 	if err := copyFileAtomic(stagedBinary, staging); err != nil {
-		return err
+		return false, err
 	}
 	if err := syncFile(staging); err != nil {
 		_ = os.Remove(staging)
-		return err
+		return false, err
 	}
 	if _, err := os.Stat(opts.TargetPath); err == nil {
 		rollbackNew := opts.RollbackPath + ".new"
 		if err := copyFileAtomic(opts.TargetPath, rollbackNew); err != nil {
 			_ = os.Remove(staging)
-			return fmt.Errorf("preserve rollback copy failed: %w", err)
+			return false, fmt.Errorf("preserve rollback copy failed: %w", err)
 		}
 		if err := os.Rename(rollbackNew, opts.RollbackPath); err != nil {
 			_ = os.Remove(staging)
 			_ = os.Remove(rollbackNew)
-			return err
+			return false, err
 		}
 	}
 	if err := os.Rename(staging, opts.TargetPath); err != nil {
 		_ = os.Remove(staging)
-		return err
+		return false, err
 	}
-	return syncFile(opts.TargetPath)
+	if err := syncTargetAfterActivation(opts.TargetPath); err != nil {
+		return true, fmt.Errorf("%w: %v", ErrActivationDurability, err)
+	}
+	return true, nil
+}
+
+// syncTargetAfterActivationHook is set only in tests to simulate post-rename sync failure.
+var syncTargetAfterActivationHook func(string) error
+
+func syncTargetAfterActivation(path string) error {
+	if syncTargetAfterActivationHook != nil {
+		return syncTargetAfterActivationHook(path)
+	}
+	return syncFile(path)
 }
 
 // Rollback restores the previous binary if present.

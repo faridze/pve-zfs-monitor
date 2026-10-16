@@ -18,3 +18,10 @@ LDFLAGS = -s -w \
 .PHONY: build
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/pve-zfs-monitor ./cmd/pve-zfs-monitor
+
+.PHONY: build-linux-amd64 build-linux-arm64
+build-linux-amd64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/pve-zfs-monitor-linux-amd64 ./cmd/pve-zfs-monitor
+
+build-linux-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/pve-zfs-monitor-linux-arm64 ./cmd/pve-zfs-monitor

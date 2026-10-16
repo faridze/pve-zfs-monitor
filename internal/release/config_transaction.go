@@ -56,6 +56,13 @@ func shouldSkipConfigRewrite(req InstallReleaseRequest) bool {
 	if err != nil {
 		return false
 	}
-	return existing.Channel == req.Channel &&
-		stringsTrimRight(existing.ReleaseBase) == stringsTrimRight(req.ReleaseBase)
+	if existing.Channel != req.Channel ||
+		stringsTrimRight(existing.ReleaseBase) != stringsTrimRight(req.ReleaseBase) {
+		return false
+	}
+	same, err := trustKeyBase64Equal(existing.TrustKeyPath, req.SourceTrustKeyFile)
+	if err != nil || !same {
+		return false
+	}
+	return true
 }

@@ -23,6 +23,7 @@ VERSION=""
 RELEASE_BASE="${PVE_ZFS_MONITOR_RELEASE_BASE:-}"
 TRUST_KEY_FILE="${PVE_ZFS_MONITOR_TRUST_KEY_FILE:-}"
 INSTALLER_SHA256="${INSTALLER_SHA256:-}"
+ALLOW_TRUST_KEY_ROTATION="${PVE_ZFS_MONITOR_ALLOW_TRUST_KEY_ROTATION:-0}"
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --version) VERSION="$2"; shift 2 ;;
     --release-base) RELEASE_BASE="$2"; shift 2 ;;
     --trust-key-file) TRUST_KEY_FILE="$2"; shift 2 ;;
+    --allow-trust-key-rotation) ALLOW_TRUST_KEY_ROTATION=1; shift ;;
     -h|--help) usage ;;
     *) echo "unknown argument: $1" >&2; usage ;;
   esac
@@ -222,17 +224,51 @@ EOF
   mv -f "$tmp" "$CONF_DIR/release.conf"
 }
 
+validate_persisted_trust_anchor() {
+  local conf="${CONF_DIR}/release.conf"
+  local persisted="${CONF_DIR}/trusted-signing-key.pub.b64"
+  [[ -f "$conf" ]] || return 0
+  python3 - "$conf" "$persisted" "$TRUST_KEY_FILE" "$CHANNEL" "$RELEASE_BASE" "$ALLOW_TRUST_KEY_ROTATION" <<'PY'
+import base64, json, sys
+conf_path, persisted_path, supplied_path, channel, base, allow = sys.argv[1:7]
+with open(conf_path, encoding="utf-8") as f:
+    doc = json.load(f)
+if doc.get("channel") != channel or doc.get("release_base", "").rstrip("/") != base.rstrip("/"):
+    sys.exit(0)
+if not __import__("os").path.isfile(persisted_path):
+    sys.exit(0)
+with open(persisted_path, encoding="utf-8") as f:
+    a = f.read().strip()
+with open(supplied_path, encoding="utf-8") as f:
+    b = f.read().strip()
+if base64.b64decode(a) == base64.b64decode(b):
+    sys.exit(0)
+if allow == "1":
+    sys.exit(0)
+print("trust signing key does not match persisted anchor (see docs/p1d-lab-key-rotation.md)", file=sys.stderr)
+sys.exit(3)
+PY
+}
+
 should_skip_config_rewrite() {
   local conf="${CONF_DIR}/release.conf"
   [[ -f "$conf" ]] || return 1
-  python3 - "$conf" "$CHANNEL" "$RELEASE_BASE" <<'PY'
-import json, sys
-path, channel, base = sys.argv[1:4]
+  python3 - "$conf" "$CHANNEL" "$RELEASE_BASE" "$TRUST_KEY_FILE" "${CONF_DIR}/trusted-signing-key.pub.b64" <<'PY'
+import base64, json, sys
+path, channel, base, supplied_path, persisted_path = sys.argv[1:6]
 with open(path, encoding="utf-8") as f:
     doc = json.load(f)
 base = base.rstrip("/")
 rb = doc.get("release_base", "").rstrip("/")
-sys.exit(0 if doc.get("channel") == channel and rb == base else 1)
+if doc.get("channel") != channel or rb != base:
+    sys.exit(1)
+if not __import__("os").path.isfile(persisted_path):
+    sys.exit(1)
+with open(persisted_path, encoding="utf-8") as f:
+    a = f.read().strip()
+with open(supplied_path, encoding="utf-8") as f:
+    b = f.read().strip()
+sys.exit(0 if base64.b64decode(a) == base64.b64decode(b) else 1)
 PY
 }
 
@@ -270,6 +306,8 @@ ARTIFACT_NAME="pve-zfs-monitor-linux-${GOARCH}"
 curl_https "${PREFIX}/${ARTIFACT_NAME}" "$TMP/${ARTIFACT_NAME}"
 
 verify_bundle "$TMP/manifest.json" "$TMP/manifest.json.sig.json" "$TMP/${ARTIFACT_NAME}"
+
+validate_persisted_trust_anchor
 
 if should_skip_config_rewrite; then
   if ! atomic_install_file "$TMP/${ARTIFACT_NAME}"; then

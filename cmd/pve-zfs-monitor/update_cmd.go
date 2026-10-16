@@ -115,6 +115,7 @@ func runRollback(stdout, stderr io.Writer) int {
 func runInstallRelease(args []string, stdout, stderr io.Writer) int {
 	var manifestPath, sigPath, binPath, releaseBase, channelStr, version string
 	var trustKeyFile string
+	allowTrustRotation := false
 	for _, a := range args {
 		if strings.HasPrefix(a, "--manifest=") {
 			manifestPath = strings.TrimPrefix(a, "--manifest=")
@@ -130,6 +131,8 @@ func runInstallRelease(args []string, stdout, stderr io.Writer) int {
 			version = strings.TrimPrefix(a, "--version=")
 		} else if strings.HasPrefix(a, "--trust-key-file=") {
 			trustKeyFile = strings.TrimPrefix(a, "--trust-key-file=")
+		} else if a == "--allow-trust-key-rotation" {
+			allowTrustRotation = true
 		}
 	}
 	if manifestPath == "" || sigPath == "" || binPath == "" {
@@ -160,15 +163,16 @@ func runInstallRelease(args []string, stdout, stderr io.Writer) int {
 		ch = release.Channel(release.ChannelName)
 	}
 	if err := release.InstallRelease(release.InstallReleaseRequest{
-		ManifestPath:       manifestPath,
-		SignaturePath:      sigPath,
-		ArtifactPath:       binPath,
-		PublicKey:          pub,
-		Opts:               release.DefaultInstallOptions(),
-		ReleaseBase:        releaseBase,
-		Channel:            ch,
-		ExpectedVersion:    version,
-		SourceTrustKeyFile: trustKeyFile,
+		ManifestPath:          manifestPath,
+		SignaturePath:         sigPath,
+		ArtifactPath:          binPath,
+		PublicKey:             pub,
+		Opts:                  release.DefaultInstallOptions(),
+		ReleaseBase:           releaseBase,
+		Channel:               ch,
+		ExpectedVersion:       version,
+		SourceTrustKeyFile:    trustKeyFile,
+		AllowTrustKeyRotation: allowTrustRotation,
 	}); err != nil {
 		fmt.Fprintf(stderr, "install failed: %v\n", err)
 		return 3

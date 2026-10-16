@@ -84,8 +84,6 @@ func TestInstallReleaseSkipsConfigRewriteOnSameChannelBase(t *testing.T) {
 
 	target := filepath.Join(dir, "pve-zfs-monitor")
 	manifestPath, sigPath, binPath := writeSignedBundle(t, pub, "1.0.0-rc2", []byte{0x7f, 'E', 'L', 'F'})
-	otherKey := filepath.Join(dir, "other.b64")
-	_ = os.WriteFile(otherKey, []byte("not-the-same-key"), 0o644)
 
 	if err := InstallRelease(InstallReleaseRequest{
 		ManifestPath:       manifestPath,
@@ -96,7 +94,7 @@ func TestInstallReleaseSkipsConfigRewriteOnSameChannelBase(t *testing.T) {
 		ReleaseBase:        base,
 		Channel:            ChannelLab,
 		ExpectedVersion:    "1.0.0-rc2",
-		SourceTrustKeyFile: otherKey,
+		SourceTrustKeyFile: keyPath,
 	}); err != nil {
 		t.Fatal(err)
 	}
