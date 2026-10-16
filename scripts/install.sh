@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # Self-contained pve-zfs-monitor installer (no Git/Go). All verifier/install logic is embedded in this file.
-# Out-of-band: verify this script's SHA-256 (or maintainer signature) before running as root.
 #
-#   curl --proto '=https' --tlsv1.2 --proto-redir '=https' -fsSL -o install.sh "$BASE/scripts/install.sh"
-#   sha256sum -c install.sh.sha256    # from maintainer, not the release host alone
-#   sudo INSTALLER_SHA256=<expected> bash install.sh --channel lab --version VER \
-#     --release-base https://... --trust-key-file /path/to/reviewed-key.b64
+# Operator trust (required before root execution):
+#   1. Obtain install.sh.sha256 (or signature) from maintainer out-of-band — NOT from the release host alone.
+#   2. sha256sum -c install.sh.sha256
+#   3. sudo INSTALLER_SHA256=<same-hex> bash install.sh ...
 set -euo pipefail
 
-LOCK_PATH="${PVE_ZFS_MONITOR_LOCK_PATH:-/run/lock/pve-zfs-monitor.lock}"
-TARGET="${PVE_ZFS_MONITOR_INSTALL_TARGET:-/usr/local/bin/pve-zfs-monitor}"
+HERMETIC="${PVE_ZFS_MONITOR_HERMETIC_TEST:-}"
+DEFAULT_LOCK_DIR="/run/lock/pve-zfs-monitor"
+DEFAULT_LOCK_PATH="${DEFAULT_LOCK_DIR}/install.lock"
+DEFAULT_TARGET="/usr/local/bin/pve-zfs-monitor"
+DEFAULT_CONF_DIR="/etc/pve-zfs-monitor"
+
+LOCK_PATH="${DEFAULT_LOCK_PATH}"
+TARGET="${DEFAULT_TARGET}"
 ROLLBACK="${TARGET}.previous"
-CONF_DIR="${PVE_ZFS_MONITOR_CONFIG_DIR:-/etc/pve-zfs-monitor}"
-TEST_INSTALL="${PVE_ZFS_MONITOR_TEST_INSTALL:-}"
+CONF_DIR="${DEFAULT_CONF_DIR}"
 
 CHANNEL=""
 VERSION=""
@@ -28,7 +32,8 @@ case "$ARCH" in
 esac
 
 usage() {
-  echo "Usage: sudo INSTALLER_SHA256=<hex> bash $0 --channel stable|lab --version VER --release-base URL --trust-key-file PATH" >&2
+  echo "Usage: sha256sum -c install.sh.sha256  # maintainer file, out-of-band" >&2
+  echo "       sudo INSTALLER_SHA256=<hex> bash $0 --channel stable|lab --version VER --release-base URL --trust-key-file PATH" >&2
   exit 64
 }
 
@@ -45,33 +50,63 @@ done
 
 [[ -n "$CHANNEL" && -n "$VERSION" && -n "$RELEASE_BASE" && -n "$TRUST_KEY_FILE" ]] || usage
 [[ "$CHANNEL" == "stable" || "$CHANNEL" == "lab" ]] || usage
-[[ -f "$TRUST_KEY_FILE" ]] || { echo "trust key file not found" >&2; exit 3; }
 case "$RELEASE_BASE" in https://*) ;; *) echo "release base must be https://" >&2; exit 3 ;; esac
+
+if [[ -z "$INSTALLER_SHA256" ]]; then
+  echo "INSTALLER_SHA256 required (verify install.sh with maintainer digest before sudo)" >&2
+  exit 3
+fi
+actual="$(sha256sum "$0" | awk '{print $1}')"
+if [[ "${actual,,}" != "${INSTALLER_SHA256,,}" ]]; then
+  echo "installer digest mismatch" >&2
+  exit 3
+fi
+
+[[ -f "$TRUST_KEY_FILE" ]] || { echo "trust key file not found" >&2; exit 3; }
+
+if [[ "$HERMETIC" == "1" ]]; then
+  LOCK_PATH="${PVE_ZFS_MONITOR_LOCK_PATH:-$DEFAULT_LOCK_PATH}"
+  TARGET="${PVE_ZFS_MONITOR_INSTALL_TARGET:-$DEFAULT_TARGET}"
+  ROLLBACK="${TARGET}.previous"
+  CONF_DIR="${PVE_ZFS_MONITOR_CONFIG_DIR:-$DEFAULT_CONF_DIR}"
+else
+  if [[ -n "${PVE_ZFS_MONITOR_CURL_INSECURE:-}" ]]; then
+    echo "refusing disabled TLS verification in production" >&2
+    exit 3
+  fi
+  for v in "${PVE_ZFS_MONITOR_LOCK_PATH:-}" "${PVE_ZFS_MONITOR_INSTALL_TARGET:-}" "${PVE_ZFS_MONITOR_CONFIG_DIR:-}"; do
+    if [[ -n "$v" ]]; then
+      echo "refusing non-default install paths in production" >&2
+      exit 3
+    fi
+  done
+fi
 
 command -v python3 >/dev/null || { echo "python3 required" >&2; exit 3; }
 command -v openssl >/dev/null || { echo "openssl required" >&2; exit 3; }
 command -v curl >/dev/null || { echo "curl required" >&2; exit 3; }
 command -v flock >/dev/null || { echo "flock required" >&2; exit 3; }
 
-if [[ "$TEST_INSTALL" != "1" ]] && [[ "$(id -u)" -ne 0 ]]; then
+if [[ "$HERMETIC" != "1" ]] && [[ "$(id -u)" -ne 0 ]]; then
   echo "root privileges required (use sudo)" >&2
   exit 77
 fi
 
-if [[ -n "$INSTALLER_SHA256" ]]; then
-  actual="$(sha256sum "$0" | awk '{print $1}')"
-  if [[ "${actual,,}" != "${INSTALLER_SHA256,,}" ]]; then
-    echo "installer digest mismatch" >&2
-    exit 3
-  fi
-fi
-
 curl_https() {
   local insecure=()
-  if [[ "${PVE_ZFS_MONITOR_CURL_INSECURE:-}" == "1" ]]; then
+  if [[ "$HERMETIC" == "1" && "${PVE_ZFS_MONITOR_CURL_INSECURE:-}" == "1" ]]; then
     insecure=(-k)
   fi
   curl --proto '=https' --tlsv1.2 --proto-redir '=https' "${insecure[@]}" -fsSL "$1" -o "$2"
+}
+
+reject_symlink() {
+  local p="$1"
+  if [[ -L "$p" ]]; then
+    echo "refusing symlink at $p" >&2
+    return 3
+  fi
+  return 0
 }
 
 verify_bundle() {
@@ -141,6 +176,35 @@ atomic_install_file() {
   mv -f "$stage" "$TARGET"
 }
 
+CONFIG_BACKUP_DIR=""
+backup_release_config() {
+  CONFIG_BACKUP_DIR="$(mktemp -d -t pve-zfs-monitor-config-backup.XXXXXX)"
+  local conf="${CONF_DIR}/release.conf"
+  local key="${CONF_DIR}/trusted-signing-key.pub.b64"
+  if [[ -f "$conf" ]]; then cp -a "$conf" "${CONFIG_BACKUP_DIR}/release.conf"; fi
+  if [[ -f "$key" ]]; then cp -a "$key" "${CONFIG_BACKUP_DIR}/trusted-signing-key.pub.b64"; fi
+}
+
+restore_release_config() {
+  [[ -z "$CONFIG_BACKUP_DIR" ]] && return 0
+  local conf="${CONF_DIR}/release.conf"
+  local key="${CONF_DIR}/trusted-signing-key.pub.b64"
+  if [[ -f "${CONFIG_BACKUP_DIR}/release.conf" ]]; then
+    install -m 0644 "${CONFIG_BACKUP_DIR}/release.conf" "$conf"
+    chown root:root "$conf" 2>/dev/null || true
+  else
+    rm -f "$conf"
+  fi
+  if [[ -f "${CONFIG_BACKUP_DIR}/trusted-signing-key.pub.b64" ]]; then
+    install -m 0644 "${CONFIG_BACKUP_DIR}/trusted-signing-key.pub.b64" "$key"
+    chown root:root "$key" 2>/dev/null || true
+  else
+    rm -f "$key"
+  fi
+  rm -rf "$CONFIG_BACKUP_DIR"
+  CONFIG_BACKUP_DIR=""
+}
+
 persist_release_config() {
   mkdir -p "$CONF_DIR"
   install -m 0644 "$TRUST_KEY_FILE" "$CONF_DIR/trusted-signing-key.pub.b64"
@@ -158,15 +222,45 @@ EOF
   mv -f "$tmp" "$CONF_DIR/release.conf"
 }
 
-mkdir -p "$(dirname "$LOCK_PATH")"
-exec 9>"$LOCK_PATH"
-if ! flock -n 9; then
-  echo "another install/update is in progress" >&2
-  exit 3
-fi
+should_skip_config_rewrite() {
+  local conf="${CONF_DIR}/release.conf"
+  [[ -f "$conf" ]] || return 1
+  python3 - "$conf" "$CHANNEL" "$RELEASE_BASE" <<'PY'
+import json, sys
+path, channel, base = sys.argv[1:4]
+with open(path, encoding="utf-8") as f:
+    doc = json.load(f)
+base = base.rstrip("/")
+rb = doc.get("release_base", "").rstrip("/")
+sys.exit(0 if doc.get("channel") == channel and rb == base else 1)
+PY
+}
 
-TMP="$(mktemp -d /var/tmp/pve-zfs-monitor-install.XXXXXX)"
-cleanup() { rm -rf "$TMP"; }
+acquire_install_lock() {
+  reject_symlink "$(dirname "$LOCK_PATH")" || exit 3
+  reject_symlink "$LOCK_PATH" || exit 3
+  mkdir -p "$(dirname "$LOCK_PATH")"
+  chmod 0755 "$(dirname "$LOCK_PATH")" 2>/dev/null || true
+  chown root:root "$(dirname "$LOCK_PATH")" 2>/dev/null || true
+  if [[ ! -e "$LOCK_PATH" ]]; then
+    install -m 0600 /dev/null "$LOCK_PATH"
+  fi
+  exec 9>>"$LOCK_PATH"
+  if ! flock -n 9; then
+    echo "another install/update is in progress" >&2
+    exit 3
+  fi
+}
+
+acquire_install_lock
+
+TMP="$(mktemp -d -t pve-zfs-monitor-install.XXXXXX)"
+cleanup() {
+  rm -rf "$TMP"
+  if [[ -n "$CONFIG_BACKUP_DIR" ]]; then
+    restore_release_config
+  fi
+}
 trap cleanup EXIT
 
 PREFIX="${RELEASE_BASE%/}/${CHANNEL}/${VERSION}"
@@ -177,11 +271,19 @@ curl_https "${PREFIX}/${ARTIFACT_NAME}" "$TMP/${ARTIFACT_NAME}"
 
 verify_bundle "$TMP/manifest.json" "$TMP/manifest.json.sig.json" "$TMP/${ARTIFACT_NAME}"
 
-persist_release_config
-atomic_install_file "$TMP/${ARTIFACT_NAME}"
-
-if command -v pve-zfs-monitor >/dev/null 2>&1; then
-  : # already installed via shell path; config persisted for update --check
+if should_skip_config_rewrite; then
+  if ! atomic_install_file "$TMP/${ARTIFACT_NAME}"; then
+    exit 3
+  fi
+else
+  backup_release_config
+  persist_release_config
+  if ! atomic_install_file "$TMP/${ARTIFACT_NAME}"; then
+    restore_release_config
+    exit 3
+  fi
+  rm -rf "$CONFIG_BACKUP_DIR"
+  CONFIG_BACKUP_DIR=""
 fi
 
 echo "Installed pve-zfs-monitor to $TARGET"

@@ -26,7 +26,7 @@ func TestInvalidChecksumRejected(t *testing.T) {
 }
 
 func TestFailedActivationPreservesInstalledBinary(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	target := filepath.Join(dir, "pve-zfs-monitor")

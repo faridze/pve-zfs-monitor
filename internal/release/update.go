@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -140,10 +139,7 @@ func AcquireUpdateLock(path string) (*UpdateLock, error) {
 	if path == "" {
 		path = installLockPath()
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := openLockFile(path)
 	if err != nil {
 		return nil, err
 	}

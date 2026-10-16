@@ -11,7 +11,6 @@ import (
 const (
 	DefaultInstallPath = "/usr/local/bin/pve-zfs-monitor"
 	RollbackSuffix     = ".previous"
-	DefaultLockPath    = "/run/lock/pve-zfs-monitor.lock"
 )
 
 // InstallOptions controls atomic installation behavior.
@@ -31,17 +30,10 @@ func DefaultInstallOptions() InstallOptions {
 	}
 }
 
-func installLockPath() string {
-	if p := strings.TrimSpace(os.Getenv("PVE_ZFS_MONITOR_LOCK_PATH")); p != "" {
-		return p
-	}
-	return DefaultLockPath
-}
-
 // ValidateInstallTarget ensures we do not clobber package paths or symlinks.
 func ValidateInstallTarget(target string) error {
 	target = filepath.Clean(target)
-	if os.Getenv("PVE_ZFS_MONITOR_TEST_INSTALL") != "1" && target != DefaultInstallPath {
+	if !HermeticTestEnabled() && target != DefaultInstallPath {
 		return fmt.Errorf("refusing non-default install target %q (expected %s)", target, DefaultInstallPath)
 	}
 	if strings.HasPrefix(target, "/usr/bin/") || strings.HasPrefix(target, "/bin/") {

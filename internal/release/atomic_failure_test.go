@@ -7,7 +7,7 @@ import (
 )
 
 func TestAtomicInstallPreservesLiveBinaryOnStagingFailure(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(t.TempDir(), "lock"))
 	dir := t.TempDir()
 	target := filepath.Join(dir, "pve-zfs-monitor")
@@ -26,7 +26,7 @@ func TestAtomicInstallPreservesLiveBinaryOnStagingFailure(t *testing.T) {
 }
 
 func TestRollbackUsesLockAndPreservesWhenMissingBackup(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(t.TempDir(), "lock"))
 	dir := t.TempDir()
 	target := filepath.Join(dir, "pve-zfs-monitor")

@@ -69,7 +69,7 @@ func TestInvalidManifestAndSignature(t *testing.T) {
 }
 
 func TestInstallAtomicAndRollback(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	target := filepath.Join(dir, "pve-zfs-monitor")
@@ -97,7 +97,7 @@ func TestInstallAtomicAndRollback(t *testing.T) {
 }
 
 func TestRefuseUnexpectedSymlink(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	link := filepath.Join(dir, "pve-zfs-monitor")
@@ -134,7 +134,7 @@ func TestUpdateFlowWithHTTPServer(t *testing.T) {
 	}
 	raw, _ := json.Marshal(manifest)
 	sig := signManifestJSON(t, raw)
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "update.lock"))
 	target := filepath.Join(dir, "pve-zfs-monitor")
@@ -172,7 +172,8 @@ func TestUpdateFlowWithHTTPServer(t *testing.T) {
 }
 
 func TestConcurrentUpdateLock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "lock")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
+	path := filepath.Join(t.TempDir(), "install.lock")
 	l1, err := AcquireUpdateLock(path)
 	if err != nil {
 		t.Fatal(err)

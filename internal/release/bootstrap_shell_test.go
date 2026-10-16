@@ -111,11 +111,12 @@ func TestInstallScriptBootstrapFromEmptyDir(t *testing.T) {
 
 	releaseBase := strings.TrimSuffix(srv.URL, "/") + "/releases"
 	env := []string{
-		"PVE_ZFS_MONITOR_TEST_INSTALL=1",
+		"PVE_ZFS_MONITOR_HERMETIC_TEST=1",
 		"PVE_ZFS_MONITOR_CURL_INSECURE=1",
+		"INSTALLER_SHA256=" + installerScriptSHA256(scriptDst),
 		"PVE_ZFS_MONITOR_INSTALL_TARGET=" + filepath.Join(targetDir, "pve-zfs-monitor"),
 		"PVE_ZFS_MONITOR_CONFIG_DIR=" + confDir,
-		"PVE_ZFS_MONITOR_LOCK_PATH=" + filepath.Join(lockDir, "pve-zfs-monitor.lock"),
+		"PVE_ZFS_MONITOR_LOCK_PATH=" + filepath.Join(lockDir, "install.lock"),
 	}
 	args := []string{scriptDst,
 		"--channel", "lab",
@@ -196,11 +197,12 @@ func TestInstallScriptRejectsTamperedArtifact(t *testing.T) {
 		"--channel", "lab", "--version", "1.0.0-rc1",
 		"--release-base", releaseBase, "--trust-key-file", trustKey)
 	cmd.Env = append(os.Environ(),
-		"PVE_ZFS_MONITOR_TEST_INSTALL=1",
+		"PVE_ZFS_MONITOR_HERMETIC_TEST=1",
 		"PVE_ZFS_MONITOR_CURL_INSECURE=1",
+		"INSTALLER_SHA256="+installerScriptSHA256(scriptDst),
 		"PVE_ZFS_MONITOR_INSTALL_TARGET="+filepath.Join(targetDir, "pve-zfs-monitor"),
 		"PVE_ZFS_MONITOR_CONFIG_DIR="+confDir,
-		"PVE_ZFS_MONITOR_LOCK_PATH="+filepath.Join(work, "lock"),
+		"PVE_ZFS_MONITOR_LOCK_PATH="+filepath.Join(work, "install.lock"),
 	)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -212,8 +214,52 @@ func TestInstallScriptRejectsTamperedArtifact(t *testing.T) {
 	_ = pub
 }
 
+func installerScriptSHA256(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestInstallScriptRequiresInstallerDigest(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	root := filepath.Clean(filepath.Join("..", ".."))
+	scriptDst := filepath.Join(t.TempDir(), "install.sh")
+	data, _ := os.ReadFile(filepath.Join(root, "scripts", "install.sh"))
+	_ = os.WriteFile(scriptDst, data, 0o755)
+	cmd := exec.Command("bash", scriptDst, "--channel", "lab", "--version", "1.0.0", "--release-base", "https://x.test", "--trust-key-file", "/nonexistent")
+	cmd.Env = append(os.Environ(), "PVE_ZFS_MONITOR_HERMETIC_TEST=1", "INSTALLER_SHA256=")
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "INSTALLER_SHA256 required") {
+		t.Fatalf("expected missing digest failure, err=%v out=%s", err, out)
+	}
+}
+
+func TestInstallScriptRejectsWrongInstallerDigest(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	root := filepath.Clean(filepath.Join("..", ".."))
+	scriptDst := filepath.Join(t.TempDir(), "install.sh")
+	data, _ := os.ReadFile(filepath.Join(root, "scripts", "install.sh"))
+	_ = os.WriteFile(scriptDst, data, 0o755)
+	cmd := exec.Command("bash", scriptDst, "--channel", "lab", "--version", "1.0.0", "--release-base", "https://x.test", "--trust-key-file", "/nonexistent")
+	cmd.Env = append(os.Environ(),
+		"PVE_ZFS_MONITOR_HERMETIC_TEST=1",
+		"INSTALLER_SHA256=0000000000000000000000000000000000000000000000000000000000000000",
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "installer digest mismatch") {
+		t.Fatalf("expected digest mismatch, err=%v out=%s", err, out)
+	}
+}
+
 func TestInstallReleaseConfigFailureSkipsBinary(t *testing.T) {
-	t.Setenv("PVE_ZFS_MONITOR_TEST_INSTALL", "1")
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "lock"))
 	pub, _ := testSigningKeypair()

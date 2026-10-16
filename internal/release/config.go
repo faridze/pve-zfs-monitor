@@ -23,8 +23,10 @@ type PersistedConfig struct {
 
 // ConfigDir returns the configuration directory (overridable in tests).
 func ConfigDir() string {
-	if d := strings.TrimSpace(os.Getenv("PVE_ZFS_MONITOR_CONFIG_DIR")); d != "" {
-		return d
+	if HermeticTestEnabled() {
+		if d := strings.TrimSpace(os.Getenv("PVE_ZFS_MONITOR_CONFIG_DIR")); d != "" {
+			return d
+		}
 	}
 	return defaultConfigDir
 }

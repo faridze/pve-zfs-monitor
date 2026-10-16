@@ -8,6 +8,7 @@ import (
 )
 
 func TestSecureConfigAllows0644NotWritable(t *testing.T) {
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()
 	t.Setenv("PVE_ZFS_MONITOR_CONFIG_DIR", dir)
 	pub, _ := testSigningKeypair()
@@ -42,7 +43,10 @@ func TestSecureConfigAllows0644NotWritable(t *testing.T) {
 func TestSecureConfigRejectsWorldWritable(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "release.conf")
-	if err := os.WriteFile(path, []byte("{}"), 0o666); err != nil {
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o666); err != nil {
 		t.Fatal(err)
 	}
 	if err := assertSecureConfigPath(path); err == nil {

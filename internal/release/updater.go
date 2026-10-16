@@ -120,15 +120,28 @@ func InstallRelease(req InstallReleaseRequest) error {
 		return err
 	}
 	defer lock.Release()
-	if req.ReleaseBase != "" && req.SourceTrustKeyFile != "" {
+
+	var snap *persistedConfigSnapshot
+	if req.ReleaseBase != "" && req.SourceTrustKeyFile != "" && !shouldSkipConfigRewrite(req) {
+		snap, err = backupPersistedReleaseConfig()
+		if err != nil {
+			return err
+		}
 		if err := WritePersistedConfig(PersistedConfig{
 			ReleaseBase: stringsTrimRight(req.ReleaseBase),
 			Channel:     req.Channel,
 		}, req.SourceTrustKeyFile); err != nil {
+			_ = snap.Restore()
 			return err
 		}
 	}
-	return atomicInstallUnlocked(req.ArtifactPath, req.Opts)
+	if err := atomicInstallUnlocked(req.ArtifactPath, req.Opts); err != nil {
+		if snap != nil {
+			_ = snap.Restore()
+		}
+		return err
+	}
+	return nil
 }
 
 func stringsTrimRight(s string) string {

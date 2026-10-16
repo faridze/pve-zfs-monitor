@@ -30,10 +30,14 @@ func TestInstallScriptSelfContainedAndSafe(t *testing.T) {
 		"verify_bundle",
 		"atomic_install_file",
 		"persist_release_config",
+		"backup_release_config",
+		"restore_release_config",
 		"flock",
 		"--proto '=https'",
 		"--proto-redir '=https'",
-		"INSTALLER_SHA256",
+		"INSTALLER_SHA256 required",
+		"PVE_ZFS_MONITOR_HERMETIC_TEST",
+		"install.lock",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("install.sh missing required %q", required)

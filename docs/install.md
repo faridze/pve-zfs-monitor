@@ -24,7 +24,7 @@ Rollback copy: `/usr/local/bin/pve-zfs-monitor.previous`
 
 ## One-time install (curl bootstrap)
 
-Obtain the **reviewed** ed25519 public key and an **out-of-band** SHA-256 digest of `install.sh` from the maintainer (not from the release host alone).
+Obtain the **reviewed** ed25519 public key and a **maintainer-published** `install.sh.sha256` (or signature) through a channel **independent of the release download host**. Do not treat a checksum served from the same URL tree as the installer as sufficient on its own.
 
 ```bash
 export PVE_ZFS_MONITOR_RELEASE_BASE="https://example.invalid/releases"   # maintainer HTTPS base
@@ -32,16 +32,23 @@ export PVE_ZFS_MONITOR_TRUST_KEY_FILE="/path/to/reviewed-signing-key.pub.b64"
 
 curl --proto '=https' --tlsv1.2 --proto-redir '=https' -fsSL \
   -o install.sh "$PVE_ZFS_MONITOR_RELEASE_BASE/scripts/install.sh"
-# Maintainer-supplied digest (example):
-# sha256sum -c install.sh.sha256
 
-sudo INSTALLER_SHA256="<maintainer-hex-digest>" bash install.sh \
+# Out-of-band digest file from maintainer (email, git tag notes, separate mirror, etc.):
+curl --proto '=https' --tlsv1.2 --proto-redir '=https' -fsSL \
+  -o install.sh.sha256 "https://maintainer-mirror.example/install.sh.sha256"
+sha256sum -c install.sh.sha256    # MUST succeed before any root execution
+
+export INSTALLER_SHA256="$(awk '{print $1}' install.sh.sha256)"
+
+sudo INSTALLER_SHA256="$INSTALLER_SHA256" bash install.sh \
   --channel lab --version 1.0.0-rc1 \
   --release-base "$PVE_ZFS_MONITOR_RELEASE_BASE" \
   --trust-key-file "$PVE_ZFS_MONITOR_TRUST_KEY_FILE"
 ```
 
-`install.sh` is **self-contained**: embedded Python + OpenSSL verify the signed manifest and artifact SHA-256/size **before** any downloaded bytes are activated. It does not download or execute separate helper scripts. Under `/run/lock/pve-zfs-monitor.lock` it persists `/etc/pve-zfs-monitor/release.conf` and the trust key, then atomically installs the verified binary. The downloaded artifact is never executed during bootstrap.
+The in-script `INSTALLER_SHA256` check is **defense in depth** only; the trusted step is `sha256sum -c` (or signature verification) **before** `sudo bash install.sh`.
+
+`install.sh` is **self-contained**: embedded Python + OpenSSL verify the signed manifest and artifact SHA-256/size **before** any downloaded bytes are activated. It does not download or execute separate helper scripts. Under `/run/lock/pve-zfs-monitor/install.lock` it backs up any existing release config, persists `/etc/pve-zfs-monitor/release.conf` and the trust key, atomically installs the verified binary (restoring config if activation fails), and never executes the downloaded artifact during bootstrap.
 
 Offline or in-process installs may use `pve-zfs-monitor install-release` with the same verification rules.
 
