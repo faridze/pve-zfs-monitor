@@ -39,3 +39,11 @@ jobs:
         run: go vet ./...
       - name: Build static binary
         run: CGO_ENABLED=0 go build -trimpath -o /tmp/pve-zfs-monitor ./cmd/pve-zfs-monitor
+      - name: Install script syntax
+        run: bash -n scripts/install.sh
+      - name: Release signing script syntax
+        run: |
+          set -euo pipefail
+          for s in release/signing/*.sh; do
+            bash -n "$s"
+          done
