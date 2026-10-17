@@ -14,7 +14,14 @@ P1D implements verification hooks and **maintainer runbooks** only. Publishing t
 | `assemble-manifest.py` | SHA-256, size, HTTPS URLs per channel/version |
 | `sign-manifest-offline.sh` | Offline Ed25519 manifest signature (`PVE_ZFS_MONITOR_SIGNING_KEY_PEM`) |
 | `verify-bundle-offline.sh` | Maintainer pre-upload verification |
+| `publish-lab-latest.sh` | Atomically publish `lab/latest/` manifest + signature after verify |
 | `fingerprint-pubkey.sh` | Independent public-key fingerprint for operators |
+
+## `latest` metadata contract
+
+Updaters fetch `{RELEASE_BASE}/lab/latest/manifest.json` (+ `.sig.json`). Versioned binaries stay at `{RELEASE_BASE}/lab/{version}/`. Publish `latest` only after the full versioned bundle verifies; never mix `stable` and `lab`.
+
+Offline signing writes **`manifest.json.sig.json`** (not `manifest.sig.json`).
 
 Runbook: `docs/p1d-lab-release-runbook.md`  
 Operator checklist: `docs/p1d-lab-acceptance.md`  

@@ -20,7 +20,7 @@ export INSTALLER_SHA256="$(awk '{print $1}' install.sh.sha256)"
 ```bash
 sudo INSTALLER_SHA256="$INSTALLER_SHA256" bash install.sh \
   --channel lab --version 1.0.0-rc1 \
-  --release-base "https://<releases>/lab" \
+  --release-base "https://<releases-host>" \
   --trust-key-file /path/to/reviewed-signing-key.pub.b64
 ```
 

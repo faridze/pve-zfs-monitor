@@ -52,10 +52,6 @@ func validatePersistedTrustAnchor(req InstallReleaseRequest) error {
 	if err != nil {
 		return nil
 	}
-	if existing.Channel != req.Channel ||
-		stringsTrimRight(existing.ReleaseBase) != stringsTrimRight(req.ReleaseBase) {
-		return nil
-	}
 	persistedKey := existing.TrustKeyPath
 	if persistedKey == "" {
 		return nil

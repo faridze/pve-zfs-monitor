@@ -46,11 +46,29 @@ CI uses **synthetic** keys in `internal/release/lab_bundle_test.go` only.
 
 ## 5. Upload (manual, post-approval)
 
-Upload to `https://.../lab/$VERSION/`:
+`RELEASE_BASE` is the HTTPS origin **without** a channel suffix (installer/updater append `/lab/...`).
+
+Upload versioned artifacts to `https://<host>/lab/$VERSION/`:
 
 - `manifest.json`
 - `manifest.json.sig.json`
 - `pve-zfs-monitor-linux-amd64`
 - `pve-zfs-monitor-linux-arm64`
+
+Verify the version directory, then publish the `latest` metadata alias (manifest + signature only):
+
+```bash
+./release/signing/publish-lab-latest.sh dist/lab/$VERSION dist/lab trusted-signing-key.pub.b64
+```
+
+This writes `dist/lab/latest/manifest.json` and `dist/lab/latest/manifest.json.sig.json` atomically after offline verification. Artifact URLs inside the manifest remain immutable (`.../lab/$VERSION/...`). Upload `latest/` only after the versioned tree is complete.
+
+`pve-zfs-monitor update` fetches `{RELEASE_BASE}/lab/latest/manifest.json` (not stable).
+
+## Release metadata (`trusted_release`)
+
+- `build-lab-artifacts.sh` produces binaries with `TRUSTED=false` (reports `development: true`, `trusted_release: false`).
+- Manifest Ed25519 signatures prove release integrity; they do **not** flip `trusted_release`.
+- Only a separately approved maintainer release pipeline may set `TRUSTED=true` at link time with pinned public key material (`docs/install.md`).
 
 Do **not** tag, merge, or deploy from this step.

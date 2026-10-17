@@ -228,13 +228,9 @@ validate_persisted_trust_anchor() {
   local conf="${CONF_DIR}/release.conf"
   local persisted="${CONF_DIR}/trusted-signing-key.pub.b64"
   [[ -f "$conf" ]] || return 0
-  python3 - "$conf" "$persisted" "$TRUST_KEY_FILE" "$CHANNEL" "$RELEASE_BASE" "$ALLOW_TRUST_KEY_ROTATION" <<'PY'
-import base64, json, sys
-conf_path, persisted_path, supplied_path, channel, base, allow = sys.argv[1:7]
-with open(conf_path, encoding="utf-8") as f:
-    doc = json.load(f)
-if doc.get("channel") != channel or doc.get("release_base", "").rstrip("/") != base.rstrip("/"):
-    sys.exit(0)
+  python3 - "$persisted" "$TRUST_KEY_FILE" "$ALLOW_TRUST_KEY_ROTATION" <<'PY'
+import base64, sys
+persisted_path, supplied_path, allow = sys.argv[1:4]
 if not __import__("os").path.isfile(persisted_path):
     sys.exit(0)
 with open(persisted_path, encoding="utf-8") as f:

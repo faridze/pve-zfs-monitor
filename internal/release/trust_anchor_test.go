@@ -13,6 +13,79 @@ import (
 	"testing"
 )
 
+func TestInstallReleaseRejectsTrustKeyMismatchOnReleaseBaseChange(t *testing.T) {
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
+	dir := t.TempDir()
+	t.Setenv("PVE_ZFS_MONITOR_CONFIG_DIR", dir)
+	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "install.lock"))
+
+	pubA, _ := testSigningKeypair()
+	pubB, privB, _ := ed25519.GenerateKey(rand.Reader)
+	keyB := filepath.Join(dir, "b.b64")
+	_ = os.WriteFile(keyB, []byte(base64.StdEncoding.EncodeToString(pubB)), 0o644)
+
+	if err := WritePersistedConfig(PersistedConfig{
+		ReleaseBase: "https://old.example.test",
+		Channel:     ChannelLab,
+	}, writePubKeyFile(t, pubA)); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(dir, "pve-zfs-monitor")
+	manifestPath, sigPath, binPath := writeSignedBundleForKey(t, pubB, privB, "1.0.0-rc2", []byte{0x7f, 'E', 'L', 'F'})
+	err := InstallRelease(InstallReleaseRequest{
+		ManifestPath:       manifestPath,
+		SignaturePath:      sigPath,
+		ArtifactPath:       binPath,
+		PublicKey:          pubB,
+		Opts:               InstallOptions{TargetPath: target, RollbackPath: target + RollbackSuffix, ExpectedName: "pve-zfs-monitor"},
+		ReleaseBase:        "https://new.example.test",
+		Channel:            ChannelLab,
+		ExpectedVersion:    "1.0.0-rc2",
+		SourceTrustKeyFile: keyB,
+	})
+	if !errors.Is(err, ErrTrustKeyMismatch) {
+		t.Fatalf("expected ErrTrustKeyMismatch on base change, got %v", err)
+	}
+}
+
+func TestInstallReleaseAllowsSameKeyReleaseBaseChange(t *testing.T) {
+	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
+	dir := t.TempDir()
+	t.Setenv("PVE_ZFS_MONITOR_CONFIG_DIR", dir)
+	t.Setenv("PVE_ZFS_MONITOR_LOCK_PATH", filepath.Join(dir, "install.lock"))
+
+	_, priv := testSigningKeypair()
+	pub, _ := testSigningKeypair()
+	keyPath := writePubKeyFile(t, pub)
+	if err := WritePersistedConfig(PersistedConfig{
+		ReleaseBase: "https://old.example.test",
+		Channel:     ChannelLab,
+	}, keyPath); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(dir, "pve-zfs-monitor")
+	manifestPath, sigPath, binPath := writeSignedBundleForKey(t, pub, priv, "1.0.0-rc2", []byte{0x7f, 'E', 'L', 'F'})
+	if err := InstallRelease(InstallReleaseRequest{
+		ManifestPath:       manifestPath,
+		SignaturePath:      sigPath,
+		ArtifactPath:       binPath,
+		PublicKey:          pub,
+		Opts:               InstallOptions{TargetPath: target, RollbackPath: target + RollbackSuffix, ExpectedName: "pve-zfs-monitor"},
+		ReleaseBase:        "https://new.example.test",
+		Channel:            ChannelLab,
+		ExpectedVersion:    "1.0.0-rc2",
+		SourceTrustKeyFile: keyPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadPersistedConfig()
+	if err != nil || cfg.ReleaseBase != "https://new.example.test" {
+		t.Fatalf("expected release base update with same key: %+v err=%v", cfg, err)
+	}
+}
+
 func TestInstallReleaseRejectsTrustKeyMismatch(t *testing.T) {
 	t.Setenv("PVE_ZFS_MONITOR_HERMETIC_TEST", "1")
 	dir := t.TempDir()

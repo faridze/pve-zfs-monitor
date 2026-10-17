@@ -14,7 +14,7 @@ if [[ ! -f "$PRIVATE_KEY_PEM" ]]; then
   exit 3
 fi
 
-SIG_OUT="${MANIFEST%.json}.sig.json"
+SIG_OUT="${MANIFEST}.sig.json"
 python3 - "$MANIFEST" "$PRIVATE_KEY_PEM" "$SIG_OUT" <<'PY'
 import base64, json, subprocess, sys, tempfile
 
