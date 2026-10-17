@@ -14,12 +14,15 @@ P1D implements verification hooks and **maintainer runbooks** only. Publishing t
 | `assemble-manifest.py` | SHA-256, size, HTTPS URLs per channel/version |
 | `sign-manifest-offline.sh` | Offline Ed25519 manifest signature (`PVE_ZFS_MONITOR_SIGNING_KEY_PEM`) |
 | `verify-bundle-offline.sh` | Maintainer pre-upload verification |
-| `publish-lab-latest.sh` | Atomically publish `lab/latest/` manifest + signature after verify |
+| `publish-lab-latest.sh` | Local in-place promotion to `lab/latest/` (preserves prior on failure) |
+| `verify-release-origin.sh` | HTTPS origin verification of manifest, sig, and artifact URLs |
 | `fingerprint-pubkey.sh` | Independent public-key fingerprint for operators |
 
 ## `latest` metadata contract
 
-Updaters fetch `{RELEASE_BASE}/lab/latest/manifest.json` (+ `.sig.json`). Versioned binaries stay at `{RELEASE_BASE}/lab/{version}/`. Publish `latest` only after the full versioned bundle verifies; never mix `stable` and `lab`.
+Updaters fetch `{RELEASE_BASE}/lab/latest/manifest.json` (+ `.sig.json`). Versioned binaries stay at `{RELEASE_BASE}/lab/{version}/`. Publish `latest` only after the full versioned bundle is live at the HTTPS origin; never mix `stable` and `lab`.
+
+Remote promotion is **not** claimed to be atomic on generic HTTPS storage. Use platform-specific pointer/swap patterns where available; otherwise expect transient check failures until both metadata objects match.
 
 Offline signing writes **`manifest.json.sig.json`** (not `manifest.sig.json`).
 
