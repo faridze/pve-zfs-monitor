@@ -36,7 +36,7 @@ cp -a "$VERSION_DIR/manifest.json" "$VERSION_DIR/manifest.json.sig.json" \
 
 "$ROOT_SIGNING/publish-lab-latest.sh" "$VERSION_DIR" "$OUTPUT_DIR/lab" "$TRUST_PUB_B64"
 
-sha256sum "$OUTPUT_DIR/scripts/install.sh" | awk '{print $1"  scripts/install.sh"}' > "$OUTPUT_DIR/scripts/install.sh.sha256"
+sha256sum "$OUTPUT_DIR/scripts/install.sh" | awk '{print $1"  install.sh"}' > "$OUTPUT_DIR/scripts/install.sh.sha256"
 
 python3 - "$OUTPUT_DIR/lab/$VERSION/manifest.json" <<'PY'
 import json, sys
