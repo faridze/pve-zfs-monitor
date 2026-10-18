@@ -136,10 +136,9 @@ jobs:
       - name: Verify private key fingerprint
         run: ./release/signing/verify-lab-signing-key.sh "$SIGNING_KEY_PATH"
       - name: Sign manifest
-        env:
-          PVE_ZFS_MONITOR_SIGNING_KEY_PEM: ${{ env.SIGNING_KEY_PATH }}
         run: |
           set -euo pipefail
+          export PVE_ZFS_MONITOR_SIGNING_KEY_PEM="$SIGNING_KEY_PATH"
           man="${RUNNER_TEMP}/unsigned/manifest.json"
           ./release/signing/sign-manifest-offline.sh "$man"
       - name: Prepare Pages site baseline
