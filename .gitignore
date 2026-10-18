@@ -28,6 +28,9 @@ go.work.sum
 # env file
 .env
 
+# Local release staging (never commit binaries)
+dist/
+
 # Editor/IDE
 # .idea/
 # .vscode/

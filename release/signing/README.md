@@ -16,6 +16,7 @@ P1D implements verification hooks and **maintainer runbooks** only. Publishing t
 | `verify-bundle-offline.sh` | Maintainer pre-upload verification |
 | `publish-lab-latest.sh` | Local in-place promotion to `lab/latest/` (preserves prior on failure) |
 | `verify-release-origin.sh` | HTTPS origin verification of manifest, sig, and artifact URLs |
+| `assemble-gh-pages-tree.sh` | Stage `scripts/` + `lab/VERSION/` + `lab/latest/` for GitHub Pages |
 | `fingerprint-pubkey.sh` | Independent public-key fingerprint for operators |
 
 ## `latest` metadata contract
