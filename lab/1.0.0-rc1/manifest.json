@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0-rc1",
+  "channel": "lab",
+  "commit": "b2245e8a28bc393ef31ab343ba2c507c67e1508a",
+  "published_at": "2026-10-18T13:59:52Z",
+  "artifacts": [
+    {
+      "filename": "pve-zfs-monitor-linux-amd64",
+      "goos": "linux",
+      "goarch": "amd64",
+      "sha256": "90368bea6e7e6d871dce3c1939676e2d735bca3a6787975e357555fa012ac943",
+      "size": 7389344,
+      "url": "https://faridze.github.io/pve-zfs-monitor/lab/1.0.0-rc1/pve-zfs-monitor-linux-amd64"
+    },
+    {
+      "filename": "pve-zfs-monitor-linux-arm64",
+      "goos": "linux",
+      "goarch": "arm64",
+      "sha256": "6855781b72d283133bb7ff5fe84d763343cfae06214991dea6dddf432be48f3d",
+      "size": 6815904,
+      "url": "https://faridze.github.io/pve-zfs-monitor/lab/1.0.0-rc1/pve-zfs-monitor-linux-arm64"
+    }
+  ]
+}
