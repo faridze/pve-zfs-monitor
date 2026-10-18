@@ -1,0 +1,10 @@
+# Required public paths that must exist in a Pages site tree before merge/deploy.
+# Lines starting with # are comments. Prefix "+" for optional (preserved if present on prior site).
+index.html
+.nojekyll
+scripts/install.sh
+scripts/install.sh.sha256
+scripts/trusted-signing-key.pub.b64
+lab/latest/manifest.json
+lab/latest/manifest.json.sig.json
++lab/published-versions.txt

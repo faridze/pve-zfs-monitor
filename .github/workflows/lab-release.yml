@@ -1,0 +1,181 @@
+# Maintainer-only signed lab release → GitHub Pages (workflow_dispatch on main only).
+# Secrets live in Environment "lab-release-signing" — never exposed to pull_request CI.
+name: Lab release (signed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semver lab version (e.g. 1.0.0-rc2)
+        required: true
+        type: string
+      git_sha:
+        description: Full commit SHA on main to build from
+        required: true
+        type: string
+      allow_migration_bootstrap:
+        description: ONE-TIME first migration only — gh-pages bootstrap when live inventory is 404 and live latest is still 1.0.0-rc1
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: lab-release-pages
+  cancel-in-progress: false
+
+env:
+  RELEASE_BASE: https://faridze.github.io/pve-zfs-monitor
+  EXPECTED_LAB_SIGNING_KEY_FINGERPRINT: sha256:1307dc2b092cd88dde7f27461f3c5f48620889f870b25fe5515f427e54e14c8a
+
+jobs:
+  validate:
+    name: Validate version and source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject non-main workflow ref
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "lab release must be dispatched from branch main (got ${GITHUB_REF})" >&2
+            exit 1
+          fi
+      - name: Validate inputs
+        env:
+          VERSION: ${{ inputs.version }}
+          GIT_SHA: ${{ inputs.git_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "invalid version: $VERSION" >&2
+            exit 1
+          fi
+          if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "git_sha must be a full 40-char commit SHA" >&2
+            exit 1
+          fi
+          git cat-file -e "${GIT_SHA}^{commit}" 2>/dev/null || { echo "unknown commit $GIT_SHA" >&2; exit 1; }
+          git merge-base --is-ancestor "$GIT_SHA" HEAD || { echo "commit $GIT_SHA is not on main" >&2; exit 1; }
+      - name: Reject duplicate published version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: ./release/signing/check-lab-version-not-published.sh "$RELEASE_BASE" "$VERSION"
+
+  build:
+    name: Build unsigned lab bundle
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source at pinned SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.git_sha }}
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@0aaccfd275c220bfc92d32c1e25f0db2cd9f1b25 # v5.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build lab artifacts
+        env:
+          OUT_DIR: ${{ runner.temp }}/lab-build
+        run: |
+          set -euo pipefail
+          ./release/signing/ci-lab-release-build.sh "${{ inputs.git_sha }}" "${{ inputs.version }}"
+          echo "bundle_dir=${OUT_DIR}/${{ inputs.version }}" >> "$GITHUB_ENV"
+      - name: Upload unsigned bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lab-unsigned-${{ inputs.version }}
+          path: ${{ runner.temp }}/lab-build/${{ inputs.version }}/
+          if-no-files-found: error
+
+  publish:
+    name: Sign, verify, and deploy Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: lab-release-signing
+    steps:
+      - name: Checkout source at pinned SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.git_sha }}
+          persist-credentials: false
+      - name: Download unsigned bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b834a593795f3a167d19a13f # v4.3.0
+        with:
+          name: lab-unsigned-${{ inputs.version }}
+          path: ${{ runner.temp }}/unsigned
+      - name: Materialize signing key (environment secret)
+        env:
+          PEM: ${{ secrets.PVE_ZFS_MONITOR_LAB_SIGNING_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PEM}" ]]; then
+            echo "PVE_ZFS_MONITOR_LAB_SIGNING_KEY_PEM is not configured" >&2
+            exit 1
+          fi
+          key="${RUNNER_TEMP}/lab-signing.pem"
+          printf '%s' "$PEM" > "$key"
+          chmod 600 "$key"
+          echo "SIGNING_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: Verify private key fingerprint
+        run: ./release/signing/verify-lab-signing-key.sh "$SIGNING_KEY_PATH"
+      - name: Sign manifest
+        run: |
+          set -euo pipefail
+          export PVE_ZFS_MONITOR_SIGNING_KEY_PEM="$SIGNING_KEY_PATH"
+          man="${RUNNER_TEMP}/unsigned/manifest.json"
+          ./release/signing/sign-manifest-offline.sh "$man"
+      - name: Prepare Pages site baseline
+        env:
+          PAGES_ALLOW_GH_PAGES_BOOTSTRAP: ${{ inputs.allow_migration_bootstrap == true && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          ./release/signing/prepare-pages-site-baseline.sh \
+            "$RELEASE_BASE" "${{ runner.temp }}/pages-work" "${{ github.workspace }}"
+      - name: Verify signed bundle (trusted public key)
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/unsigned"
+          pub="${RUNNER_TEMP}/pages-work/scripts/trusted-signing-key.pub.b64"
+          test -f "$pub"
+          ./release/signing/verify-bundle-offline.sh "$bundle" "$pub"
+      - name: Merge new version into Pages tree
+        env:
+          EXPECTED_LAB_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          site="${RUNNER_TEMP}/pages-work"
+          bundle="${RUNNER_TEMP}/unsigned"
+          pub="${RUNNER_TEMP}/pages-work/scripts/trusted-signing-key.pub.b64"
+          ./release/signing/merge-pages-for-deploy.sh "$site" "$bundle" "$pub" "${{ github.workspace }}" "${{ inputs.version }}"
+      - name: Materialize clean public deployment tree
+        run: ./release/signing/materialize-public-pages-site.sh "${{ runner.temp }}/pages-work" "${{ runner.temp }}/pages-deploy"
+      - name: Write Pages deploy manifest
+        run: ./release/signing/write-pages-deploy-manifest.sh "${{ runner.temp }}/pages-deploy"
+      - name: Verify public deployment inventory
+        run: ./release/signing/verify-pages-deploy-inventory.sh "${{ runner.temp }}/pages-deploy"
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: ${{ runner.temp }}/pages-deploy
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b4aed7e0febac5b3c0c03e # v4.0.5

@@ -17,16 +17,24 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 "$ROOT/verify-bundle-offline.sh" "$VERSION_DIR" "$TRUST_PUB_B64"
 
 MANIFEST_PATH="$VERSION_DIR/manifest.json"
-CHANNEL="$(python3 - "$MANIFEST_PATH" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    print(json.load(f)["channel"])
+python3 - "$MANIFEST_PATH" "$VERSION_DIR" "$LAB_ROOT" <<'PY'
+import json, os, sys
+
+manifest_path, version_dir, lab_root = sys.argv[1:4]
+with open(manifest_path, encoding="utf-8") as f:
+    doc = json.load(f)
+if doc.get("channel") != "lab":
+    raise SystemExit("refusing to publish non-lab manifest to lab/latest")
+ver = doc.get("version", "")
+if not ver:
+    raise SystemExit("manifest missing version")
+if os.path.basename(os.path.normpath(version_dir)) != ver:
+    raise SystemExit(f"version dir basename must match manifest version ({ver})")
+for art in doc.get("artifacts", []):
+    path = os.path.join(version_dir, art["filename"])
+    if not os.path.isfile(path):
+        raise SystemExit(f"missing artifact for latest promotion: {path}")
 PY
-)"
-if [[ "$CHANNEL" != "lab" ]]; then
-  echo "refusing to publish non-lab manifest to lab/latest" >&2
-  exit 3
-fi
 
 if [[ -n "${VERIFY_HTTPS_ORIGIN:-}" ]]; then
   RELEASE_BASE="${RELEASE_BASE:-}"
@@ -68,4 +76,11 @@ mv -f "$SIG_TMP" "$PREV/manifest.json.sig.json"
 
 trap - EXIT
 cleanup_candidate
-echo "promoted lab/latest from $(basename "$VERSION_DIR") (local staging only; upload per runbook)"
+latest_ver="$("$ROOT/read-manifest-version.sh" "$PREV/manifest.json")"
+target="$LAB_ROOT/$latest_ver"
+if [[ ! -d "$target" ]]; then
+  echo "lab/latest promoted $latest_ver but lab/$latest_ver is missing" >&2
+  exit 3
+fi
+"$ROOT/verify-bundle-offline.sh" "$target" "$TRUST_PUB_B64"
+echo "promoted lab/latest from $latest_ver (local staging only; upload per runbook)"

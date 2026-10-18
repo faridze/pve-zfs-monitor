@@ -23,7 +23,12 @@ export COMMIT="$GIT_SHA"
 export CHANNEL=lab
 export TRUSTED=false
 
-mkdir -p "$ROOT/$OUT_DIR/$VERSION"
+if [[ "$OUT_DIR" == /* ]]; then
+  ARTIFACT_DIR="$OUT_DIR/$VERSION"
+else
+  ARTIFACT_DIR="$ROOT/$OUT_DIR/$VERSION"
+fi
+mkdir -p "$ARTIFACT_DIR"
 for pair in linux:amd64 linux:arm64; do
   GOOS="${pair%%:*}"
   GOARCH="${pair##*:}"
@@ -33,7 +38,7 @@ for pair in linux:amd64 linux:arm64; do
       -X github.com/faridze/pve-zfs-monitor/internal/release.Version=${VERSION} \
       -X github.com/faridze/pve-zfs-monitor/internal/release.Commit=${GIT_SHA} \
       -X github.com/faridze/pve-zfs-monitor/internal/release.ChannelName=lab" \
-    -o "$ROOT/$OUT_DIR/$VERSION/$name" ./cmd/pve-zfs-monitor
+    -o "$ARTIFACT_DIR/$name" ./cmd/pve-zfs-monitor
 done
 
 python3 "$ROOT/release/signing/assemble-manifest.py" \
@@ -41,7 +46,7 @@ python3 "$ROOT/release/signing/assemble-manifest.py" \
   --version "$VERSION" \
   --commit "$GIT_SHA" \
   --release-base "$RELEASE_BASE" \
-  --artifact-dir "$ROOT/$OUT_DIR/$VERSION" \
-  --output "$ROOT/$OUT_DIR/$VERSION/manifest.json"
+  --artifact-dir "$ARTIFACT_DIR" \
+  --output "$ARTIFACT_DIR/manifest.json"
 
-echo "Built unsigned lab bundle at $ROOT/$OUT_DIR/$VERSION (manifest unsigned)"
+echo "Built unsigned lab bundle at $ARTIFACT_DIR (manifest unsigned)"
