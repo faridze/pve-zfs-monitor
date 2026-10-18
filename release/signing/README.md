@@ -17,6 +17,11 @@ P1D implements verification hooks and **maintainer runbooks** only. Publishing t
 | `publish-lab-latest.sh` | Local in-place promotion to `lab/latest/` (preserves prior on failure) |
 | `verify-release-origin.sh` | HTTPS origin verification of manifest, sig, and artifact URLs |
 | `assemble-gh-pages-tree.sh` | Stage `scripts/` + `lab/VERSION/` + `lab/latest/` for GitHub Pages |
+| `ci-lab-release-build.sh` | CI wrapper for unsigned lab builds (no secrets) |
+| `verify-lab-signing-key.sh` | Ensure PEM private key matches approved public fingerprint |
+| `fetch-existing-pages-site.sh` | Download live Pages tree before merge/deploy |
+| `merge-pages-for-deploy.sh` | Merge signed version; refuse clobbering immutable releases |
+| `record-published-lab-version.sh` | Maintain `lab/.published-versions` for fetch bootstrap |
 | `fingerprint-pubkey.sh` | Independent public-key fingerprint for operators |
 
 ## `latest` metadata contract
@@ -28,6 +33,7 @@ Remote promotion is **not** claimed to be atomic on generic HTTPS storage. Use p
 Offline signing writes **`manifest.json.sig.json`** (not `manifest.sig.json`).
 
 Runbook: `docs/p1d-lab-release-runbook.md`  
+GitHub Actions setup: `docs/github-actions-lab-release.md`  
 Operator checklist: `docs/p1d-lab-acceptance.md`  
 Key rotation: `docs/p1d-lab-key-rotation.md`
 
