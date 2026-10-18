@@ -11,16 +11,19 @@ Strictly **non-production** staging nodes only. No pool changes, no package inst
 
 ## Build and deploy (lab node)
 
+Preferred once a **signed lab channel artifact** exists (see `docs/install.md`):
+
 ```bash
-# On a build host (not necessarily the PVE node)
-git clone https://github.com/faridze/pve-zfs-monitor.git
-cd pve-zfs-monitor
-git checkout feature/p1c-device-identity-smart
-CGO_ENABLED=0 go build -o pve-zfs-monitor ./cmd/pve-zfs-monitor
-# Copy binary to lab node (scp/rsync); do not install packages on PVE unless already present.
+# Two-step on PVE (no Git/Go on node)
+curl -fsSL -o install.sh "$PVE_ZFS_MONITOR_RELEASE_BASE/scripts/install.sh"
+sudo PVE_ZFS_MONITOR_TRUST_KEY_FILE=/path/to/reviewed-signing-key.pub.b64 \
+  bash install.sh --channel lab --version <approved-version> \
+  --release-base "$PVE_ZFS_MONITOR_RELEASE_BASE"
 ```
 
-Record binary version: `pve-zfs-monitor version` and git HEAD SHA.
+Until the first trusted lab release is published, build on a separate host and copy the binary manually (development build; `trusted_release: false`).
+
+Record: `pve-zfs-monitor version --json` (version, commit, channel, `trusted_release`).
 
 ## Procedure overview
 
