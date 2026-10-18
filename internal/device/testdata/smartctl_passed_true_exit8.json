@@ -1,0 +1,9 @@
+{
+  "smart_status": {
+    "passed": true,
+    "status": { "string": "OK" }
+  },
+  "nvme_smart_health_information_log": {
+    "temperature": 35
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "ata_smart_attributes": {
+    "table": [
+      {
+        "name": "Temperature_Celsius",
+        "value": 67,
+        "raw": { "value": 33, "string": "33" }
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "kname": "nvme0n1",
+      "path": "/dev/nvme0n1",
+      "type": "disk",
+      "size": "1000204886016",
+      "model": "Samsung SSD 990 PRO 1TB",
+      "serial": "S6B0NS0T123456",
+      "wwn": "eui.abc111",
+      "tran": "nvme",
+      "children": [
+        {
+          "name": "nvme0n1p3",
+          "kname": "nvme0n1p3",
+          "path": "/dev/nvme0n1p3",
+          "type": "part",
+          "size": "999000000000",
+          "pkname": "nvme0n1",
+          "tran": "nvme"
+        }
+      ]
+    }
+  ]
+}
