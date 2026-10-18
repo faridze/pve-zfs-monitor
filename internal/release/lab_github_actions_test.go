@@ -30,6 +30,12 @@ func TestLabReleaseWorkflowIsDispatchOnlyOnMain(t *testing.T) {
 	if !strings.Contains(body, "secrets.PVE_ZFS_MONITOR_LAB_SIGNING_KEY_PEM") {
 		t.Fatal("must read PVE_ZFS_MONITOR_LAB_SIGNING_KEY_PEM from environment secret")
 	}
+	if !strings.Contains(body, "check-lab-version-not-published.sh") {
+		t.Fatal("duplicate version check must use fail-closed script")
+	}
+	if !strings.Contains(body, "ref: gh-pages") {
+		t.Fatal("publish must checkout gh-pages for full site preservation")
+	}
 	if strings.Contains(body, "${{ secrets.GITHUB_TOKEN }}") && strings.Contains(body, "gh-pages") {
 		t.Fatal("must not push gh-pages with GITHUB_TOKEN")
 	}

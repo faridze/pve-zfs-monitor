@@ -19,8 +19,12 @@ P1D implements verification hooks and **maintainer runbooks** only. Publishing t
 | `assemble-gh-pages-tree.sh` | Stage `scripts/` + `lab/VERSION/` + `lab/latest/` for GitHub Pages |
 | `ci-lab-release-build.sh` | CI wrapper for unsigned lab builds (no secrets) |
 | `verify-lab-signing-key.sh` | Ensure PEM private key matches approved public fingerprint |
-| `fetch-existing-pages-site.sh` | Download live Pages tree before merge/deploy |
-| `merge-pages-for-deploy.sh` | Merge signed version; refuse clobbering immutable releases |
+| `fetch-existing-pages-site.sh` | Clone full Pages tree (`git` gh-pages or `live` + deploy manifest) |
+| `check-lab-version-not-published.sh` | Fail-closed duplicate-version probe (HTTP 404 only) |
+| `read-manifest-version.sh` | Read `version` from manifest.json |
+| `verify-pages-site-preservation.sh` | Required public assets + complete lab bundles |
+| `write-pages-deploy-manifest.sh` | Enumerate all files for the next live fetch |
+| `merge-pages-for-deploy.sh` | Merge signed bundle; version from manifest vs expected input |
 | `record-published-lab-version.sh` | Maintain `lab/.published-versions` for fetch bootstrap |
 | `fingerprint-pubkey.sh` | Independent public-key fingerprint for operators |
 

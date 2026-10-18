@@ -32,7 +32,7 @@ func TestMergePagesRejectsConflictingVersion(t *testing.T) {
 	_ = os.WriteFile(pubPath, []byte(testPubB64), 0o644)
 
 	merge := filepath.Join(root, "release", "signing", "merge-pages-for-deploy.sh")
-	out, err := exec.Command("bash", merge, site, newDir, pubPath, root).CombinedOutput()
+	out, err := exec.Command("bash", merge, site, newDir, pubPath, root, ver).CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected refuse overwrite, out=%s", out)
 	}

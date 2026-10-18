@@ -68,9 +68,12 @@ The **`stable`** channel is not modified by this workflow.
 
 ## Migration notes
 
-- The deploy job downloads the **live** site, merges the new signed version, updates **`lab/latest`** only after bundle verification, and deploys one complete Pages artifact.
-- Immutable version directories are not overwritten with different content; duplicate versions are rejected at validation.
-- `lab/.published-versions` tracks published versions for fetch/merge; bootstrap includes **`1.0.0-rc1`** when the file is absent.
+- The deploy job checks out the full **`gh-pages`** tree (first migration) or, on later Actions-only deploys, can rebuild from **`pages-deploy-manifest.txt`** on the live site. It merges the new signed version without deleting unrelated public paths (for example **`stable/`**).
+- **`lab/latest`** is promoted only from a verified **`lab/<version>/`** directory whose basename matches the manifest `version` field and contains every artifact listed in the manifest.
+- The workflow derives the release version from the **signed manifest** and requires an exact match to the `version` workflow input (artifact directories named `unsigned/` are supported).
+- Duplicate-version checks accept only explicit **HTTP 404** as “not published”; TLS, network, and 5xx errors abort validation.
+- Immutable version directories are not overwritten with different content.
+- `lab/.published-versions` and `pages-deploy-manifest.txt` track published lab versions and the full deploy file list.
 
 ## Security limitations
 
