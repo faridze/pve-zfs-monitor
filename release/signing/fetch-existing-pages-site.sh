@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 # Materialize the current public Pages site tree for merge-before-deploy.
 # Modes (PAGES_FETCH_MODE):
-#   git  — extract refs/heads/gh-pages from a local git repository (default)
-#   live — download every path listed in pages-deploy-manifest.txt from HTTPS
+#   live — download every path listed in pages-deploy-manifest.txt from HTTPS (strict by default)
+#   git  — extract refs/heads/gh-pages from a local git repository (migration/tests only)
 set -euo pipefail
 
 BASE="${1:-}"
 OUT="${2:-}"
-MODE="${PAGES_FETCH_MODE:-git}"
+MODE="${PAGES_FETCH_MODE:-live}"
 GIT_REPO="${PAGES_GIT_REPO:-}"
-BOOTSTRAP="${LAB_BOOTSTRAP_VERSIONS:-1.0.0-rc1}"
+STRICT="${PAGES_LIVE_STRICT:-1}"
 
 if [[ -z "$OUT" ]]; then
   echo "Usage: $0 <release-base-url> /path/to/out-dir" >&2
-  echo "  git mode: set PAGES_GIT_REPO to a repo checkout with gh-pages" >&2
-  echo "  live mode: set PAGES_FETCH_MODE=live and pass RELEASE_BASE as first arg" >&2
   exit 64
 fi
 
 ROOT_SIGNING="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=pages-public-path-policy.sh
+source "$ROOT_SIGNING/pages-public-path-policy.sh"
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
@@ -27,8 +28,11 @@ if [[ "$MODE" == "git" ]]; then
     echo "PAGES_GIT_REPO is required for git fetch mode" >&2
     exit 64
   fi
+  staging="$(mktemp -d)"
   git -C "$GIT_REPO" fetch origin gh-pages --depth 1 2>/dev/null || true
-  git -C "$GIT_REPO" archive origin/gh-pages | tar -x -C "$OUT"
+  git -C "$GIT_REPO" archive origin/gh-pages | tar -x -C "$staging"
+  "$ROOT_SIGNING/materialize-public-pages-site.sh" "$staging" "$OUT"
+  rm -rf "$staging"
 elif [[ "$MODE" == "live" ]]; then
   if [[ -z "$BASE" ]]; then
     echo "release base URL required for live fetch mode" >&2
@@ -36,56 +40,48 @@ elif [[ "$MODE" == "live" ]]; then
   fi
   BASE="${BASE%/}"
   manifest_tmp="$(mktemp)"
-  if curl -fsSL "$BASE/pages-deploy-manifest.txt" -o "$manifest_tmp" 2>/dev/null; then
-    while IFS= read -r rel || [[ -n "$rel" ]]; do
-      rel="$(echo "$rel" | xargs)"
-      [[ -z "$rel" ]] && continue
-      dest="$OUT/$rel"
-      mkdir -p "$(dirname "$dest")"
-      curl -fsSL "$BASE/$rel" -o "$dest"
-    done < "$manifest_tmp"
+  http_code="$(
+    curl -fsSL -o "$manifest_tmp" -w '%{http_code}' "$BASE/pages-deploy-manifest.txt" || echo "000"
+  )"
+  if [[ "$http_code" != "200" ]]; then
     rm -f "$manifest_tmp"
-  else
-    rm -f "$manifest_tmp"
-    echo "pages-deploy-manifest.txt missing; using bootstrap live fetch" >&2
-    mkdir -p "$OUT/scripts" "$OUT/lab"
-    curl -fsSL "$BASE/index.html" -o "$OUT/index.html"
-    curl -fsSL "$BASE/.nojekyll" -o "$OUT/.nojekyll" 2>/dev/null || true
-    for f in install.sh install.sh.sha256 trusted-signing-key.pub.b64; do
-      curl -fsSL "$BASE/scripts/$f" -o "$OUT/scripts/$f"
-    done
-    versions=()
-    if curl -fsSL "$BASE/lab/.published-versions" -o "$OUT/lab/.published-versions" 2>/dev/null; then
-      while IFS= read -r line || [[ -n "$line" ]]; do
-        line="${line%%#*}"
-        line="$(echo "$line" | xargs)"
-        [[ -n "$line" ]] && versions+=("$line")
-      done < "$OUT/lab/.published-versions"
-    else
-      for ver in ${BOOTSTRAP//,/ }; do
-        [[ -n "$ver" ]] && versions+=("$ver")
-      done
+    if [[ "$STRICT" == "1" ]]; then
+      echo "pages-deploy-manifest.txt must be HTTP 200 (got $http_code)" >&2
+      exit 2
     fi
-    for ver in "${versions[@]}"; do
-      dest="$OUT/lab/$ver"
-      mkdir -p "$dest"
-      for f in manifest.json manifest.json.sig.json pve-zfs-monitor-linux-amd64 pve-zfs-monitor-linux-arm64; do
-        curl -fsSL "$BASE/lab/$ver/$f" -o "$dest/$f"
-      done
-    done
-    mkdir -p "$OUT/lab/latest"
-    for f in manifest.json manifest.json.sig.json; do
-      curl -fsSL "$BASE/lab/latest/$f" -o "$OUT/lab/latest/$f"
-    done
-    # Preserve optional stable channel tree if present.
-    if curl -fsSL "$BASE/stable/.channel-marker" -o "$OUT/stable/.channel-marker" 2>/dev/null; then
-      :
-    fi
+    echo "pages-deploy-manifest.txt missing in non-strict live mode" >&2
+    exit 2
   fi
+
+  while IFS= read -r rel || [[ -n "$rel" ]]; do
+    rel="$(echo "$rel" | xargs)"
+    [[ -z "$rel" ]] && continue
+    if pages_path_is_forbidden "$rel" || ! pages_path_is_public "$rel"; then
+      echo "forbidden path in live inventory: $rel" >&2
+      rm -f "$manifest_tmp"
+      exit 3
+    fi
+    dest="$OUT/$rel"
+    mkdir -p "$(dirname "$dest")"
+    file_code="$(
+      curl -fsSL -o "$dest" -w '%{http_code}' "$BASE/$rel" || echo "000"
+    )"
+    if [[ "$file_code" != "200" ]]; then
+      echo "failed to fetch $rel (HTTP $file_code)" >&2
+      rm -f "$manifest_tmp"
+      exit 2
+    fi
+  done < "$manifest_tmp"
+  install -m 0644 "$manifest_tmp" "$OUT/pages-deploy-manifest.txt"
+  rm -f "$manifest_tmp"
 else
   echo "unknown PAGES_FETCH_MODE=$MODE" >&2
   exit 64
 fi
 
-"$ROOT_SIGNING/verify-pages-site-preservation.sh" "$OUT"
+if [[ "$MODE" == "live" ]]; then
+  "$ROOT_SIGNING/verify-pages-deploy-inventory.sh" "$OUT"
+else
+  "$ROOT_SIGNING/verify-pages-site-preservation.sh" "$OUT"
+fi
 echo "fetched Pages site into $OUT (mode=$MODE)"

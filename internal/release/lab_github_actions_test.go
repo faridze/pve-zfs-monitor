@@ -33,8 +33,14 @@ func TestLabReleaseWorkflowIsDispatchOnlyOnMain(t *testing.T) {
 	if !strings.Contains(body, "check-lab-version-not-published.sh") {
 		t.Fatal("duplicate version check must use fail-closed script")
 	}
-	if !strings.Contains(body, "ref: gh-pages") {
-		t.Fatal("publish must checkout gh-pages for full site preservation")
+	if !strings.Contains(body, "prepare-pages-site-baseline.sh") {
+		t.Fatal("publish must prepare baseline from live inventory or migration bootstrap")
+	}
+	if !strings.Contains(body, "materialize-public-pages-site.sh") {
+		t.Fatal("publish must materialize clean public deployment tree")
+	}
+	if !strings.Contains(body, "verify-pages-deploy-inventory.sh") {
+		t.Fatal("publish must verify deployment inventory before upload")
 	}
 	if strings.Contains(body, "${{ secrets.GITHUB_TOKEN }}") && strings.Contains(body, "gh-pages") {
 		t.Fatal("must not push gh-pages with GITHUB_TOKEN")

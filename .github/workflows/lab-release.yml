@@ -137,19 +137,18 @@ jobs:
           set -euo pipefail
           man="${RUNNER_TEMP}/unsigned/manifest.json"
           ./release/signing/sign-manifest-offline.sh "$man"
-      - name: Checkout gh-pages site base
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: gh-pages
-          path: ${{ runner.temp }}/pages-site
-          persist-credentials: false
-      - name: Verify preserved public Pages assets
-        run: ./release/signing/verify-pages-site-preservation.sh "${{ runner.temp }}/pages-site"
+      - name: Prepare Pages site baseline
+        env:
+          PAGES_ALLOW_GH_PAGES_BOOTSTRAP: "1"
+        run: |
+          set -euo pipefail
+          ./release/signing/prepare-pages-site-baseline.sh \
+            "$RELEASE_BASE" "${{ runner.temp }}/pages-work" "${{ github.workspace }}"
       - name: Verify signed bundle (trusted public key)
         run: |
           set -euo pipefail
           bundle="${RUNNER_TEMP}/unsigned"
-          pub="${RUNNER_TEMP}/pages-site/scripts/trusted-signing-key.pub.b64"
+          pub="${RUNNER_TEMP}/pages-work/scripts/trusted-signing-key.pub.b64"
           test -f "$pub"
           ./release/signing/verify-bundle-offline.sh "$bundle" "$pub"
       - name: Merge new version into Pages tree
@@ -157,18 +156,22 @@ jobs:
           EXPECTED_LAB_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          site="${RUNNER_TEMP}/pages-site"
+          site="${RUNNER_TEMP}/pages-work"
           bundle="${RUNNER_TEMP}/unsigned"
-          pub="${RUNNER_TEMP}/pages-site/scripts/trusted-signing-key.pub.b64"
+          pub="${RUNNER_TEMP}/pages-work/scripts/trusted-signing-key.pub.b64"
           ./release/signing/merge-pages-for-deploy.sh "$site" "$bundle" "$pub" "${{ github.workspace }}" "${{ inputs.version }}"
+      - name: Materialize clean public deployment tree
+        run: ./release/signing/materialize-public-pages-site.sh "${{ runner.temp }}/pages-work" "${{ runner.temp }}/pages-deploy"
       - name: Write Pages deploy manifest
-        run: ./release/signing/write-pages-deploy-manifest.sh "${{ runner.temp }}/pages-site"
+        run: ./release/signing/write-pages-deploy-manifest.sh "${{ runner.temp }}/pages-deploy"
+      - name: Verify public deployment inventory
+        run: ./release/signing/verify-pages-deploy-inventory.sh "${{ runner.temp }}/pages-deploy"
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: ${{ runner.temp }}/pages-site
+          path: ${{ runner.temp }}/pages-deploy
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b4aed7e0febac5b3c0c03e # v4.0.5

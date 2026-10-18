@@ -68,7 +68,8 @@ The **`stable`** channel is not modified by this workflow.
 
 ## Migration notes
 
-- The deploy job checks out the full **`gh-pages`** tree (first migration) or, on later Actions-only deploys, can rebuild from **`pages-deploy-manifest.txt`** on the live site. It merges the new signed version without deleting unrelated public paths (for example **`stable/`**).
+- The deploy job uses **`prepare-pages-site-baseline.sh`**: every release after the first migration loads the **currently deployed live site** via **`pages-deploy-manifest.txt`** (strict fetch + inventory verification). **`gh-pages`** is used only for the one-time migration when the live inventory is absent (HTTP 404), with byte-level checks against the live trusted snapshot.
+- After merge, **`materialize-public-pages-site.sh`** builds a clean static tree (no `.git/`, repo internals, or symlinks). The uploaded artifact and inventory include **only** allowlisted public paths (`scripts/`, `lab/`, `stable/`, etc.).
 - **`lab/latest`** is promoted only from a verified **`lab/<version>/`** directory whose basename matches the manifest `version` field and contains every artifact listed in the manifest.
 - The workflow derives the release version from the **signed manifest** and requires an exact match to the `version` workflow input (artifact directories named `unsigned/` are supported).
 - Duplicate-version checks accept only explicit **HTTP 404** as “not published”; TLS, network, and 5xx errors abort validation.
