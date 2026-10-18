@@ -33,6 +33,12 @@ func TestLabReleaseWorkflowIsDispatchOnlyOnMain(t *testing.T) {
 	if !strings.Contains(body, "check-lab-version-not-published.sh") {
 		t.Fatal("duplicate version check must use fail-closed script")
 	}
+	if !strings.Contains(body, "allow_migration_bootstrap") {
+		t.Fatal("workflow must expose explicit one-time migration bootstrap input")
+	}
+	if strings.Contains(body, "PAGES_ALLOW_GH_PAGES_BOOTSTRAP: \"1\"") {
+		t.Fatal("gh-pages bootstrap must not be unconditionally enabled")
+	}
 	if !strings.Contains(body, "prepare-pages-site-baseline.sh") {
 		t.Fatal("publish must prepare baseline from live inventory or migration bootstrap")
 	}

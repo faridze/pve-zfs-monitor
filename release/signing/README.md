@@ -23,7 +23,10 @@ P1D implements verification hooks and **maintainer runbooks** only. Publishing t
 | `fetch-existing-pages-site.sh` | Strict live fetch from `pages-deploy-manifest.txt` or git materialize (tests) |
 | `materialize-public-pages-site.sh` | Clean allowlisted static tree for upload (no VCS internals) |
 | `verify-pages-deploy-inventory.sh` | Manifest ↔ on-disk public files must match exactly |
+| `assert-migration-bootstrap-eligible.sh` | Live must be rc1-only before gh-pages bootstrap |
 | `verify-gh-pages-bootstrap-against-live.sh` | First-migration trusted snapshot cross-check |
+| `verify-pages-inventory-urls-fetchable.sh` | HTTPS smoke for every inventory path |
+| `read-lab-published-versions.sh` | Canonical `lab/published-versions.txt` reader |
 | `pages-public-path-policy.sh` | Allow/deny rules for public deploy paths |
 | `check-lab-version-not-published.sh` | Fail-closed duplicate-version probe (HTTP 404 only) |
 | `read-manifest-version.sh` | Read `version` from manifest.json |

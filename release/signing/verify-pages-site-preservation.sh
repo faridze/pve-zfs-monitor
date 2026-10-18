@@ -32,11 +32,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 done < "$MANIFEST_FILE"
 
 # Every recorded lab version must have a complete bundle.
-LIST="$SITE/lab/.published-versions"
-if [[ -f "$LIST" ]]; then
-  while IFS= read -r ver || [[ -n "$ver" ]]; do
-    ver="${ver%%#*}"
-    ver="$(echo "$ver" | xargs)"
+while IFS= read -r ver || [[ -n "$ver" ]]; do
     [[ -z "$ver" ]] && continue
     bundle="$SITE/lab/$ver"
     pub="$SITE/scripts/trusted-signing-key.pub.b64"
@@ -45,8 +41,7 @@ if [[ -f "$LIST" ]]; then
       exit 3
     fi
     "$ROOT_SIGNING/verify-bundle-offline.sh" "$bundle" "$pub"
-  done < "$LIST"
-fi
+done < <("$ROOT_SIGNING/read-lab-published-versions.sh" "$SITE")
 
 # lab/latest must reference a versioned bundle that exists and is complete.
 if [[ -f "$SITE/lab/latest/manifest.json" ]]; then

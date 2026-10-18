@@ -59,6 +59,7 @@ Ensure `main` matches your review policy (required reviews, no force-push). The 
 5. Inputs:
    - **version:** semver (e.g. `1.0.0-rc2`)
    - **git_sha:** full 40-character commit on `main`
+   - **allow_migration_bootstrap:** set to **true** only for the **first** Actions migration while live `lab/latest` is still **`1.0.0-rc1`** and `pages-deploy-manifest.txt` is absent. Leave **false** for all later releases.
 6. Approve the **`lab-release-signing`** environment when prompted.
 7. Confirm deployment in the workflow summary and verify:
    - `https://faridze.github.io/pve-zfs-monitor/lab/{version}/manifest.json`

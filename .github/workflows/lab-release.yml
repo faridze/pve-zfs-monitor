@@ -13,6 +13,11 @@ on:
         description: Full commit SHA on main to build from
         required: true
         type: string
+      allow_migration_bootstrap:
+        description: ONE-TIME first migration only — gh-pages bootstrap when live inventory is 404 and live latest is still 1.0.0-rc1
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -139,7 +144,7 @@ jobs:
           ./release/signing/sign-manifest-offline.sh "$man"
       - name: Prepare Pages site baseline
         env:
-          PAGES_ALLOW_GH_PAGES_BOOTSTRAP: "1"
+          PAGES_ALLOW_GH_PAGES_BOOTSTRAP: ${{ inputs.allow_migration_bootstrap == true && '1' || '0' }}
         run: |
           set -euo pipefail
           ./release/signing/prepare-pages-site-baseline.sh \

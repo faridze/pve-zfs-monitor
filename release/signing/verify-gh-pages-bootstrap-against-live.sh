@@ -35,13 +35,22 @@ for rel in index.html scripts/install.sh scripts/install.sh.sha256 scripts/trust
   rm -f "$live_tmp"
 done
 
-LIST="$SITE/lab/.published-versions"
-if [[ ! -f "$LIST" ]]; then
-  # Bootstrap before first Actions inventory: require rc1 on live.
+LIST_CONTENT="$("$ROOT_SIGNING/read-lab-published-versions.sh" "$SITE" || true)"
+if [[ -z "$LIST_CONTENT" ]]; then
   LIST_CONTENT="1.0.0-rc1"
-else
-  LIST_CONTENT="$(cat "$LIST")"
 fi
+
+for f in manifest.json manifest.json.sig.json; do
+  rel="lab/latest/$f"
+  live_tmp="$(mktemp)"
+  code="$(curl -fsSL -o "$live_tmp" -w '%{http_code}' "$BASE/$rel" || echo "000")"
+  if [[ "$code" != "200" || ! -f "$SITE/$rel" ]] || ! cmp -s "$live_tmp" "$SITE/$rel"; then
+    echo "bootstrap lab/latest/$f does not match live site" >&2
+    rm -f "$live_tmp"
+    exit 3
+  fi
+  rm -f "$live_tmp"
+done
 
 while IFS= read -r ver || [[ -n "$ver" ]]; do
   ver="${ver%%#*}"

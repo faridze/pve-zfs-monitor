@@ -33,9 +33,11 @@ if [[ "$http_code" != "404" ]]; then
 fi
 
 if [[ "${PAGES_ALLOW_GH_PAGES_BOOTSTRAP:-}" != "1" ]]; then
-  echo "live deploy inventory missing (404) and gh-pages bootstrap not enabled" >&2
+  echo "live deploy inventory missing (404); refusing stale gh-pages bootstrap (fail closed)" >&2
   exit 3
 fi
+
+"$ROOT_SIGNING/assert-migration-bootstrap-eligible.sh" "$BASE"
 
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT

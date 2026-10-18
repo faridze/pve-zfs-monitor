@@ -62,6 +62,7 @@ func TestSuccessiveReleasesRC1RC2RC3LiveBaselineUnchangedGhPages(t *testing.T) {
 	}
 	assertNoForbiddenDeploymentPaths(t, deployRC2)
 	resetDir(t, deployed, deployRC2)
+	assertInventoryPathsFetchable(t, srv.URL, deployRC2)
 
 	// gh-pages frozen copy must still only contain rc1 (no rc2 directory added).
 	if _, err := os.Stat(filepath.Join(ghPagesFrozen, "lab", "1.0.0-rc2")); err == nil {
@@ -100,6 +101,9 @@ func TestSuccessiveReleasesRC1RC2RC3LiveBaselineUnchangedGhPages(t *testing.T) {
 		t.Fatalf("verify inventory rc3: %v\n%s", err, out)
 	}
 	assertNoForbiddenDeploymentPaths(t, deployRC3)
+	srv3 := httptest.NewServer(http.FileServer(http.Dir(deployRC3)))
+	defer srv3.Close()
+	assertInventoryPathsFetchable(t, srv3.URL, deployRC3)
 	for _, ver := range []string{"1.0.0-rc1", "1.0.0-rc2", "1.0.0-rc3"} {
 		if _, err := os.Stat(filepath.Join(deployRC3, "lab", ver, "pve-zfs-monitor-linux-amd64")); err != nil {
 			t.Fatalf("missing binary for %s: %v", ver, err)
@@ -112,6 +116,59 @@ func TestSuccessiveReleasesRC1RC2RC3LiveBaselineUnchangedGhPages(t *testing.T) {
 	stable, err := os.ReadFile(filepath.Join(deployRC3, "stable", "1.0.0", "README.txt"))
 	if err != nil || !strings.Contains(string(stable), "stable-channel") {
 		t.Fatalf("stable channel must survive successive releases: %v", err)
+	}
+}
+
+func TestBootstrapRejectedWhenLiveLatestRC2AndInventory404(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash required")
+	}
+	pub, _ := testSigningKeypair()
+	root := filepath.Clean(filepath.Join("..", ".."))
+
+	ghPagesFrozen := t.TempDir()
+	deployed := t.TempDir()
+	buildPublicRC1Site(t, pub, ghPagesFrozen, deployed)
+
+	// Simulate Actions-published rc2 on live (latest=rc2) but missing deploy inventory.
+	unsignedRC2 := filepath.Join(t.TempDir(), "unsigned")
+	_ = os.MkdirAll(unsignedRC2, 0o755)
+	bin2 := []byte{0x7f, 'E', 'L', 'F', '2'}
+	_ = writeVersionBundle(t, unsignedRC2, pub, "1.0.0-rc2", bin2)
+	_ = os.WriteFile(filepath.Join(unsignedRC2, "pve-zfs-monitor-linux-arm64"), bin2, 0o644)
+	pubPath := filepath.Join(deployed, "scripts", "trusted-signing-key.pub.b64")
+	merge := filepath.Join(root, "release", "signing", "merge-pages-for-deploy.sh")
+	if out, err := exec.Command("bash", merge, deployed, unsignedRC2, pubPath, root, "1.0.0-rc2").CombinedOutput(); err != nil {
+		t.Fatalf("seed live rc2: %v\n%s", err, out)
+	}
+	deployedSnap, _ := os.ReadFile(filepath.Join(deployed, "lab", "latest", "manifest.json"))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/pages-deploy-manifest.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		http.FileServer(http.Dir(deployed)).ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	prepare := filepath.Join(root, "release", "signing", "prepare-pages-site-baseline.sh")
+	work := t.TempDir()
+	cmd := exec.Command("bash", prepare, srv.URL, work)
+	cmd.Env = append(os.Environ(),
+		"PAGES_ALLOW_GH_PAGES_BOOTSTRAP=1",
+		"PAGES_BOOTSTRAP_SOURCE_DIR="+ghPagesFrozen,
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected bootstrap rejection when live latest is rc2, out=%s", out)
+	}
+	if !strings.Contains(string(out), "refusing gh-pages bootstrap") {
+		t.Fatalf("expected bootstrap guard message, out=%s", out)
+	}
+	got, _ := os.ReadFile(filepath.Join(deployed, "lab", "latest", "manifest.json"))
+	if !strings.Contains(string(got), "1.0.0-rc2") || string(got) != string(deployedSnap) {
+		t.Fatal("live deployment must remain unchanged after failed rc3 baseline")
 	}
 }
 
@@ -166,6 +223,8 @@ func buildPublicRC1Site(t *testing.T, pub ed25519.PublicKey, ghPagesFrozen, depl
 	bin1 := []byte{0x7f, 'E', 'L', 'F', '1'}
 	_ = writeVersionBundle(t, rc1Dir, pub, "1.0.0-rc1", bin1)
 	_ = os.WriteFile(filepath.Join(rc1Dir, "pve-zfs-monitor-linux-arm64"), bin1, 0o644)
+	_ = os.WriteFile(filepath.Join(ghPagesFrozen, "lab", "published-versions.txt"), []byte("1.0.0-rc1\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(ghPagesFrozen, "lab", "published-versions.txt"), []byte("1.0.0-rc1\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(ghPagesFrozen, "lab", ".published-versions"), []byte("1.0.0-rc1\n"), 0o644)
 	latest := filepath.Join(ghPagesFrozen, "lab", "latest")
 	_ = os.MkdirAll(latest, 0o755)
@@ -200,6 +259,27 @@ func resetDir(t *testing.T, dst, src string) {
 
 func copyTree(src, dst string) error {
 	return exec.Command("cp", "-a", src, dst).Run()
+}
+
+func assertInventoryPathsFetchable(t *testing.T, baseURL, site string) {
+	t.Helper()
+	root := filepath.Clean(filepath.Join("..", ".."))
+	script := filepath.Join(root, "release", "signing", "verify-pages-inventory-urls-fetchable.sh")
+	manifest := filepath.Join(site, "pages-deploy-manifest.txt")
+	if out, err := exec.Command("bash", script, baseURL, manifest).CombinedOutput(); err != nil {
+		t.Fatalf("inventory fetchable check: %v\n%s", err, out)
+	}
+	manRaw, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(manRaw)
+	if !strings.Contains(body, ".nojekyll") {
+		t.Fatalf("inventory must include .nojekyll:\n%s", body)
+	}
+	if !strings.Contains(body, "lab/published-versions.txt") {
+		t.Fatalf("inventory must include lab/published-versions.txt:\n%s", body)
+	}
 }
 
 func assertNoForbiddenDeploymentPaths(t *testing.T, site string) {

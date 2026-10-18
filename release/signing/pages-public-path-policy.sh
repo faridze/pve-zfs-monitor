@@ -16,7 +16,7 @@ pages_path_is_public() {
   local rel="${1:-}"
   pages_path_is_forbidden "$rel" && return 1
   case "$rel" in
-    index.html|.nojekyll|pages-deploy-manifest.txt) return 0 ;;
+    index.html|.nojekyll|pages-deploy-manifest.txt|lab/published-versions.txt) return 0 ;;
     scripts/*) return 0 ;;
     lab/*) return 0 ;;
     stable/*) return 0 ;;

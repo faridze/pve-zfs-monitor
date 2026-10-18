@@ -10,9 +10,10 @@ if [[ -z "$SITE_ROOT" || -z "$VERSION" ]]; then
   exit 64
 fi
 
-LIST="$SITE_ROOT/lab/.published-versions"
-mkdir -p "$(dirname "$LIST")"
-touch "$LIST"
-if ! grep -qxF "$VERSION" "$LIST"; then
-  echo "$VERSION" >> "$LIST"
-fi
+mkdir -p "$SITE_ROOT/lab"
+for LIST in "$SITE_ROOT/lab/published-versions.txt" "$SITE_ROOT/lab/.published-versions"; do
+  touch "$LIST"
+  if ! grep -qxF "$VERSION" "$LIST"; then
+    echo "$VERSION" >> "$LIST"
+  fi
+done

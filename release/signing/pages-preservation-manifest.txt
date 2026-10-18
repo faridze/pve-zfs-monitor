@@ -7,3 +7,4 @@ scripts/install.sh.sha256
 scripts/trusted-signing-key.pub.b64
 lab/latest/manifest.json
 lab/latest/manifest.json.sig.json
++lab/published-versions.txt
