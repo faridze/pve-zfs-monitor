@@ -3,12 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PVE ZFS Monitor — Releases</title>
+  <title>PVE ZFS Monitor — Lab Release</title>
+  <style>
+    body {font: 16px/1.6 system-ui,sans-serif; max-width: 760px; margin: 3rem auto; padding: 0 1rem; color: #1e293b}
+    a {color: #0366d6} code {background: #f1f5f9; padding: 2px 5px}
+    .notice {border-left: 3px solid #f59e0b; padding-left: 1rem}
+  </style>
 </head>
 <body>
   <h1>PVE ZFS Monitor</h1>
-  <p>Release distribution page. No signed lab or stable release has been published yet.</p>
-  <p>Project source: <a href="https://github.com/faridze/pve-zfs-monitor">GitHub repository</a></p>
-  <p>Do not run installation commands until an independently verified installer digest and signed release artifacts are available.</p>
+  <p>Open-source read-only ZFS and NVMe health monitor for Proxmox VE.</p>
+  <h2>Signed lab release: 1.0.0-rc1</h2>
+  <p>Lab files and signed metadata are published. This build is <strong>not production-approved</strong>; real Proxmox VE 8/9 lab validation is still required.</p>
+  <ul>
+    <li><a href="./scripts/install.sh">Installer (read before executing)</a></li>
+    <li><a href="./scripts/install.sh.sha256">Installer SHA-256</a></li>
+    <li><a href="./scripts/trusted-signing-key.pub.b64">Public signing key</a></li>
+    <li><a href="./lab/1.0.0-rc1/manifest.json">Lab release manifest</a></li>
+    <li><a href="./lab/1.0.0-rc1/manifest.json.sig.json">Manifest Ed25519 signature</a></li>
+    <li><a href="./lab/latest/manifest.json">Latest lab channel metadata</a></li>
+  </ul>
+  <p class="notice"><strong>Security:</strong> Verify the installer hash using an independently trusted value and confirm the public key fingerprint before running any installer as root. Do not use on production servers yet.</p>
+  <p><a href="https://github.com/faridze/pve-zfs-monitor">Source repository</a></p>
 </body>
 </html>
