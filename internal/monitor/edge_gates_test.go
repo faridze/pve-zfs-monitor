@@ -150,9 +150,9 @@ func TestHealthCollectedTemperatureOnlyNotVerifiedHealthy(t *testing.T) {
 		DevicePath: "/dev/sda", StableHardwareID: "ata-1",
 	}}
 	report.DeviceHealth = []device.DeviceHealth{{
-		DevicePath:         "/dev/sda",
+		DevicePath:       "/dev/sda",
 		CollectionStatus: device.HealthCollected,
-		Temperature:        &device.SmartNumeric{Value: &temp, Unit: "celsius"},
+		Temperature:      &device.SmartNumeric{Value: &temp, Unit: "celsius"},
 	}}
 	signals, _, err := Detect(DetectionInput{Devices: report, DevicesOK: true}, nil, baseTime, DetectionOptions{})
 	if err != nil {
