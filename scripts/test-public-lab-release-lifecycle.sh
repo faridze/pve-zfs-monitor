@@ -21,9 +21,9 @@ test -f /.dockerenv || die "Docker container marker missing"
 test -r "$REVIEWED_INSTALLER" || die "reviewed installer not mounted"
 test ! -e "$TARGET" || die "test container already has installed binary"
 test ! -e "$CFG" || die "test container already has release config"
-test -z "$PVE_ZFS_MONITOR_HERMETIC_TEST" || die "must exercise production paths"
-test -z "$PVE_ZFS_MONITOR_TRUST_KEY_FILE" || die "no inherited signing configuration"
-test -z "$PVE_ZFS_MONITOR_RELEASE_BASE" || die "no inherited release configuration"
+test -z "${PVE_ZFS_MONITOR_HERMETIC_TEST:-}" || die "must exercise production paths"
+test -z "${PVE_ZFS_MONITOR_TRUST_KEY_FILE:-}" || die "no inherited signing configuration"
+test -z "${PVE_ZFS_MONITOR_RELEASE_BASE:-}" || die "no inherited release configuration"
 
 TMP="$(mktemp -d -t pve-zfs-public-lab-smoke.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
