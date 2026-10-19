@@ -101,10 +101,24 @@ func hasUsableSMARTEvidence(h device.DeviceHealth) bool {
 	if h.AvailableSpare != nil && h.AvailableSpare.Value != nil {
 		return true
 	}
-	if h.Temperature != nil && h.Temperature.Value != nil {
-		return true
-	}
+	// Temperature alone is ancillary; it does not prove overall SMART health.
 	return false
+}
+
+func zfsVerifiedCriticalMember(leaf zfs.VdevNode) bool {
+	if !leaf.StateObserved {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(leaf.State)) {
+	case "FAULTED", "OFFLINE", "UNAVAIL", "REMOVED", "UNAVAILIBLE":
+		return true
+	default:
+		return false
+	}
+}
+
+func logicalMemberIdentity(pool, member string) string {
+	return "zfs:" + pool + "\x00" + member
 }
 
 func topologyCollectionVerified(topo *zfs.TopologyReport) bool {

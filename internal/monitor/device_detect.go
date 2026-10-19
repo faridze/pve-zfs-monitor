@@ -12,7 +12,8 @@ func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at tim
 		return []Signal{{Key: coverageKey, Level: Unknown, Verified: false, ObservedAt: at}}, nil, nil, nil
 	}
 	coverageLevel, coverageVerified := deviceCoverageFromReport(report)
-	signals := []Signal{{Key: coverageKey, Level: coverageLevel, Verified: coverageVerified, ObservedAt: at}}
+	byKey := map[string]Signal{coverageKey: {Key: coverageKey, Level: coverageLevel, Verified: coverageVerified, ObservedAt: at}}
+	order := []string{coverageKey}
 	physByPath := make(map[string]device.PhysicalIdentity)
 	for _, p := range report.Inventory {
 		if p.DevicePath != "" {
@@ -21,7 +22,6 @@ func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at tim
 	}
 	updates := make(map[string]DeviceCounters)
 	var clearKeys []string
-	seen := make(map[string]bool)
 	for _, h := range report.DeviceHealth {
 		phys := physByPath[h.DevicePath]
 		id, err := deviceIdentity(&phys)
@@ -32,14 +32,17 @@ func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at tim
 		if err != nil {
 			continue
 		}
-		if seen[key] {
-			signals = append(signals, Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at})
-			clearKeys = append(clearKeys, key)
-			continue
-		}
-		seen[key] = true
 		sig, cur, update, clear := evalDeviceHealth(key, h, prev, at, opts)
-		signals = append(signals, sig)
+		if existing, dup := byKey[key]; dup {
+			sig = mergeAmbiguousSMARTSignals(existing, sig)
+			update = false
+			clear = true
+			delete(updates, key)
+		}
+		if _, exists := byKey[key]; !exists {
+			order = append(order, key)
+		}
+		byKey[key] = sig
 		if update {
 			updates[key] = cur
 		}
@@ -47,7 +50,32 @@ func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at tim
 			clearKeys = append(clearKeys, key)
 		}
 	}
+	signals := make([]Signal, 0, len(order))
+	for _, k := range order {
+		signals = append(signals, byKey[k])
+	}
 	return signals, updates, clearKeys, nil
+}
+
+func mergeAmbiguousSMARTSignals(a, b Signal) Signal {
+	key := a.Key
+	at := a.ObservedAt
+	if b.ObservedAt.After(at) {
+		at = b.ObservedAt
+	}
+	if a.Level == Critical && a.Verified {
+		return Signal{Key: key, Level: Critical, Verified: true, ObservedAt: at}
+	}
+	if b.Level == Critical && b.Verified {
+		return Signal{Key: key, Level: Critical, Verified: true, ObservedAt: at}
+	}
+	if a.Level == Critical || b.Level == Critical {
+		return Signal{Key: key, Level: Critical, Verified: false, ObservedAt: at}
+	}
+	if a.Level == Warning || b.Level == Warning {
+		return Signal{Key: key, Level: Warning, Verified: false, ObservedAt: at}
+	}
+	return Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at}
 }
 
 func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at time.Time, opts DetectionOptions) (Signal, DeviceCounters, bool, bool) {

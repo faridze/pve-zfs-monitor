@@ -210,6 +210,8 @@ func TestDetectOptionalTemperatureThresholdDisabledByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.DevicePath = "/dev/sda"
+	passed := true
+	h.SmartPassed = &passed
 	report := deviceReportShell(baseTime)
 	report.Inventory = []device.PhysicalIdentity{{
 		DevicePath:       "/dev/sda",
