@@ -198,7 +198,7 @@ func TestStateRoundtripAndPrivacy(t *testing.T) {
 func TestPoolSignalsKnownAndUnknownHealth(t *testing.T) {
 	pools := []zfs.Pool{{Name: "zfs-private", Health: "ONLINE"}, {Name: "backup", Health: "DEGRADED"}}
 	got, err := PoolSignals(pools, baseTime, true)
-	if err != nil || len(got) != 2 || got[0].Level != Healthy || got[1].Level != Warning {
+	if err != nil || len(got) != 3 || got[0].Level != Healthy || got[1].Level != Healthy || got[2].Level != Warning {
 		t.Fatalf("pool normalization: %+v %v", got, err)
 	}
 	buf, _ := json.Marshal(got)
@@ -233,4 +233,37 @@ func TestSimulatedEmailObserviumOutputsAreNotTransports(t *testing.T) {
 	if len(fakeEmail) != 1 || len(fakeObservium) != 1 || fakeEmail[0].Kind != Alert {
 		t.Fatal("fake adapters failed")
 	}
+}
+
+
+func TestCollectorOutageRecoveryHasVerifiedHeartbeat(t *testing.T) {
+	outage, err := PoolSignals(nil, baseTime, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, events, err := Decide(State{}, outage, baseTime, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEvent(t, events, Alert, Unknown)
+
+	// The host-scoped signal becomes healthy, but cannot recover from a
+	// single sample. The returned pool is a separate healthy baseline.
+	polls, err := PoolSignals([]zfs.Pool{{Name: "private", Health: "ONLINE"}}, baseTime.Add(time.Minute), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, events, err = Decide(state, polls, baseTime.Add(time.Minute), Options{})
+	if err != nil || len(events) != 0 {
+		t.Fatalf("unverified recovery: events=%+v err=%v", events, err)
+	}
+	polls, err = PoolSignals([]zfs.Pool{{Name: "private", Health: "ONLINE"}}, baseTime.Add(2*time.Minute), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, events, err = Decide(state, polls, baseTime.Add(2*time.Minute), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEvent(t, events, Recovery, Healthy)
 }
