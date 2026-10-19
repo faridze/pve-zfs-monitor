@@ -210,7 +210,7 @@ func TestPoolSignalsKnownAndUnknownHealth(t *testing.T) {
 	}
 	for _, health := range []string{"", "WEIRD", "online"} {
 		got, err := PoolSignals([]zfs.Pool{{Name: "p", Health: health}}, baseTime, true)
-		if err != nil || got[0].Level != Unknown || got[0].Verified {
+		if err != nil || len(got) != 2 || got[1].Level != Unknown || got[1].Verified {
 			t.Fatalf("unexpected healthy unknown state: %q -> %+v %v", health, got, err)
 		}
 	}
