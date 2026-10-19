@@ -81,6 +81,8 @@ func deviceCoverageFromReport(report *device.DeviceReport) (Level, bool) {
 	}
 }
 
+// hasUsableSMARTEvidence is true when there is enough signal to evaluate SMART health
+// beyond ancillary telemetry alone (temperature, wear, spare capacity, log counts).
 func hasUsableSMARTEvidence(h device.DeviceHealth) bool {
 	if h.SmartPassed != nil {
 		return true
@@ -88,20 +90,60 @@ func hasUsableSMARTEvidence(h device.DeviceHealth) bool {
 	if h.CriticalWarning != nil {
 		return true
 	}
-	if strings.TrimSpace(h.SmartStatusString) != "" {
+	return smartHealthCounterNonZero(h)
+}
+
+// hasValidatedOverallSMARTPass is true when overall SMART/NVMe health is explicitly OK.
+func hasValidatedOverallSMARTPass(h device.DeviceHealth) bool {
+	if h.SmartPassed != nil {
+		return *h.SmartPassed
+	}
+	if h.CriticalWarning != nil {
+		return *h.CriticalWarning == 0
+	}
+	return false
+}
+
+func smartHealthCounterNonZero(h device.DeviceHealth) bool {
+	for _, v := range []*int64{
+		numericInt64(h.MediaErrors),
+		numericInt64(h.DataIntegrityErrors),
+		numericInt64(h.ErrorLogEntries),
+	} {
+		if v != nil && *v > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasIndependentSMARTFailureEvidence(h device.DeviceHealth) bool {
+	if h.SmartPassed != nil && !*h.SmartPassed {
 		return true
 	}
-	if numericInt64(h.MediaErrors) != nil || numericInt64(h.DataIntegrityErrors) != nil ||
-		numericInt64(h.ErrorLogEntries) != nil {
+	if h.CriticalWarning != nil && *h.CriticalWarning != 0 {
 		return true
 	}
-	if h.PercentageUsed != nil && h.PercentageUsed.Value != nil {
+	return smartHealthCounterNonZero(h)
+}
+
+func hasIndependentSMARTWarningEvidence(h device.DeviceHealth, opts DetectionOptions) bool {
+	if h.CriticalWarning != nil && *h.CriticalWarning != 0 {
 		return true
 	}
-	if h.AvailableSpare != nil && h.AvailableSpare.Value != nil {
+	if h.AvailableSpare != nil && h.SpareThreshold != nil &&
+		h.AvailableSpare.Value != nil && h.SpareThreshold.Value != nil &&
+		*h.AvailableSpare.Value < *h.SpareThreshold.Value {
 		return true
 	}
-	// Temperature alone is ancillary; it does not prove overall SMART health.
+	if opts.MaxPercentageUsed > 0 && h.PercentageUsed != nil && h.PercentageUsed.Value != nil &&
+		int(*h.PercentageUsed.Value) >= opts.MaxPercentageUsed {
+		return true
+	}
+	if opts.MaxTemperatureCelsius > 0 && h.Temperature != nil && h.Temperature.Value != nil &&
+		int(*h.Temperature.Value) >= opts.MaxTemperatureCelsius {
+		return true
+	}
 	return false
 }
 

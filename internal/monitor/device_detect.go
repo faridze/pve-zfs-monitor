@@ -94,7 +94,8 @@ func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at tim
 		return Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at}, DeviceCounters{}, false, false
 	}
 
-	if h.CollectionStatus == device.HealthCollected && !hasUsableSMARTEvidence(h) {
+	if h.CollectionStatus == device.HealthCollected && !hasUsableSMARTEvidence(h) &&
+		!hasIndependentSMARTFailureEvidence(h) && !hasIndependentSMARTWarningEvidence(h, opts) {
 		level = Unknown
 		verified = false
 	}
@@ -165,8 +166,42 @@ func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at tim
 		}
 	}
 
-	update := h.CollectionStatus == device.HealthCollected && verified && hasUsableSMARTEvidence(h)
+	level, verified = finalizeSMARTSignal(h, level, verified, opts)
+
+	update := h.CollectionStatus == device.HealthCollected && verified &&
+		hasUsableSMARTEvidence(h) && (level != Healthy || hasValidatedOverallSMARTPass(h))
 	return Signal{Key: key, Level: level, Verified: verified, ObservedAt: at}, cur, update, clearBaseline
+}
+
+func finalizeSMARTSignal(h device.DeviceHealth, level Level, verified bool, opts DetectionOptions) (Level, bool) {
+	if level == Healthy && !hasValidatedOverallSMARTPass(h) {
+		return Unknown, false
+	}
+	switch level {
+	case Critical:
+		if h.SmartPassed != nil && !*h.SmartPassed {
+			return Critical, true
+		}
+		if hasIndependentSMARTFailureEvidence(h) {
+			return Critical, true
+		}
+		return level, verified
+	case Warning:
+		if hasIndependentSMARTWarningEvidence(h, opts) || hasValidatedOverallSMARTPass(h) {
+			return Warning, true
+		}
+		if verified {
+			return Warning, hasUsableSMARTEvidence(h)
+		}
+		return Warning, false
+	case Healthy:
+		if hasValidatedOverallSMARTPass(h) {
+			return Healthy, true
+		}
+		return Unknown, false
+	default:
+		return level, verified
+	}
 }
 
 func numericInt64(n *device.SmartNumeric) *int64 {
