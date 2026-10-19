@@ -76,6 +76,7 @@ type State struct {
 	Version     int               `json:"version"`
 	LastRunUnix int64             `json:"last_run_unix,omitempty"`
 	Records     map[string]Record `json:"records"`
+	Baselines   *Baselines        `json:"baselines,omitempty"`
 }
 
 type Options struct {
@@ -239,6 +240,9 @@ func validatePersistedState(s State) error {
 	}
 	if len(s.Records) > maxSignals {
 		return errors.New("too many state records")
+	}
+	if err := validateBaselines(s.Baselines); err != nil {
+		return err
 	}
 	for k, r := range s.Records {
 		if !validKey(k) || !validLevel(r.Level) {
