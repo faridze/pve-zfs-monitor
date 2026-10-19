@@ -42,7 +42,7 @@ download "scripts/trusted-signing-key.pub.b64" "$TMP/pub.b64"
 cmp -s "$REVIEWED_INSTALLER" "$TMP/install.sh" ||
     die "published installer differs from reviewed source"
 INSTALLER_SHA256="$(sha256sum "$REVIEWED_INSTALLER" | cut -d' ' -f1)"
-echo "$INSTALLER_SHA256  $TMP/install.sh" | sha256sum -c -s ||
+echo "$INSTALLER_SHA256  $TMP/install.sh" | sha256sum -c --status ||
     die "installer digest mismatch"
 pass "published installer byte-for-byte identical to reviewed source"
 
