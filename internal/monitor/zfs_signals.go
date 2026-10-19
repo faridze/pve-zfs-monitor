@@ -16,7 +16,10 @@ func PoolSignals(pools []zfs.Pool, observedAt time.Time, collectionOK bool) ([]S
 		key, _ := Key("host", "zpool-list")
 		return []Signal{{Key: key, Level: Unknown, Verified: false, ObservedAt: observedAt}}, nil
 	}
-	signals := make([]Signal, 0, len(pools))
+	// Include an explicit collector heartbeat in every valid snapshot, so
+	// an earlier collector outage can recover after verified good polls.
+	hostKey, _ := Key("host", "zpool-list")
+	signals := []Signal{{Key: hostKey, Level: Healthy, Verified: true, ObservedAt: observedAt}}
 	seen := map[string]bool{}
 	for _, p := range pools {
 		name := strings.TrimSpace(p.Name)
