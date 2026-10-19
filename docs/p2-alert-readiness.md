@@ -76,3 +76,14 @@ two in-memory slices, **not protocol adapters or actual delivery**.
 
 **No action is needed on any operational Proxmox host.** Security constraints
 and no-external-effects policy remain in force.
+
+## References for the next design review
+
+- Observium [Unix Agent](https://docs.observium.org/unix_agent/) and
+  [Adding an Application](https://docs.observium.org/developing/add_app/)
+  describe that collecting a text section does not by itself make a graph:
+  there must also be an Observium-side application/poller parser. Do not
+  enable an agent port on production simply for this proof of concept.
+- Proxmox [ZFS email notifications](https://pve.proxmox.com/pve-docs/pve-admin-guide.pdf)
+  explain that ZED already has an email path for ZFS kernel events. Avoid
+  generating duplicate mail until current notification coverage is reviewed.
