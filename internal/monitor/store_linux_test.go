@@ -81,11 +81,22 @@ func TestFileStoreDurabilityDedupeRecoveryAndPrivacy(t *testing.T) {
 }
 
 func TestFileStoreRejectsCorruptionWithoutOverwriting(t *testing.T) {
+	validKey := signal("pool", "some-pool", Critical, baseTime).Key
 	for _, contents := range []string{
 		"garbled",
 		"",
+		"null",
+		"{}",
+		"{\"version\":0,\"records\":{}}",
+		"{\"version\":1}",
+		"{\"version\":1,\"records\":null}",
 		"{\"version\":99,\"records\":{}}",
 		"{\"version\":1,\"records\":{},\"unknown_field\":\"untrusted\"}",
+		"{\"version\":1,\"records\":{\"" + validKey + "\":{\"level\":\"broken\"}}}",
+		"{\"version\":1,\"last_run_unix\":-1,\"records\":{}}",
+		"{\"version\":1,\"records\":{\"" + validKey + "\":{\"level\":\"critical\",\"last_emitted_at\":-1}}}",
+		"{\"version\":1,\"records\":{\"" + validKey + "\":{\"level\":\"critical\",\"healthy_streak\":99}}}",
+		"{\"version\":1,\"records\":{",
 		strings.Repeat("x", maxStateSize+1),
 	} {
 		t.Run("corrupt-"+string(rune(len(contents)%200+65)), func(t *testing.T) {
@@ -203,6 +214,47 @@ func TestFileStoreNonBlockingConcurrencyLock(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.Directory, stateFileName)); !os.IsNotExist(err) {
 		t.Fatalf("locked writer created state: %v", err)
+	}
+}
+
+func TestFileStoreRejectsHardlinkedStateFile(t *testing.T) {
+	s := privateTestStore(t)
+	path := filepath.Join(s.Directory, stateFileName)
+	if err := os.WriteFile(path, []byte("{\"version\":1,\"records\":{}}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(s.Directory, "state-hardlink")
+	if err := os.Link(path, link); err != nil {
+		t.Fatal(err)
+	}
+	bad := signal("pool", "pool", Critical, baseTime)
+	if events, err := s.Advance([]Signal{bad}, baseTime, Options{}); err == nil || len(events) != 0 {
+		t.Fatalf("hardlinked state accepted: events=%v err=%v", events, err)
+	}
+}
+
+func TestFileStoreClockRegressionInPersistedStateFailsClosed(t *testing.T) {
+	s := privateTestStore(t)
+	k := signal("pool", "pool", Critical, baseTime)
+	if _, err := s.Advance([]Signal{k}, baseTime, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(s.Directory, stateFileName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st State
+	if err := json.Unmarshal(raw, &st); err != nil {
+		t.Fatal(err)
+	}
+	st.LastRunUnix = baseTime.Add(24 * time.Hour).Unix()
+	updated, _ := json.Marshal(st)
+	if err := os.WriteFile(path, updated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if events, err := s.Advance([]Signal{k}, baseTime.Add(time.Minute), Options{}); err == nil || len(events) != 0 {
+		t.Fatalf("clock regression accepted: events=%v err=%v", events, err)
 	}
 }
 

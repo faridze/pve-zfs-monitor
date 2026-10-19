@@ -8,7 +8,7 @@ The private, read-only P2-A decision engine needs state storage to remember aler
 
 1. Require an existing, clean absolute directory. Every component is opened with `openat(O_NOFOLLOW|O_DIRECTORY)`; symlinks and relative paths are rejected. The leaf directory must be private (0700), owned by the caller.
 2. Open fixed `state.lock` with `O_NOFOLLOW`, reject nonregular, insecure or hardlinked lock files, and take an exclusive nonblocking flock for read/decide/write.
-3. Load fixed `state.json` with private 0600 permissions, correct owner, single hardlink and a 128 KiB maximum. Missing file means initial bootstrapping; malformed or unreadable existing data is an error, **never reset to healthy**.
+3. Load fixed `state.json` with private 0600 permissions, correct owner, single hardlink and a 128 KiB maximum. **Absent file** means first run. **Present file** must decode to schema version `1` with a non-null `records` map and valid record metadata; `{}`, `null`, `version: 0`, unsupported versions, unknown JSON fields, truncated JSON, invalid levels/timestamps/streaks and oversize payloads are errors. Corrupt existing data is **never** interpreted as healthy or reset silently.
 4. Evaluate pure `Decide` under the same lock. For a valid next state, create a random private same-directory file using `O_EXCL`; fsync file, rename into place, then fsync directory. Only return event decisions after successful persistence.
 5. No storage initialization or local host configuration is carried out automatically. The library has no network, email, ZFS, SMART, or mail APIs.
 
@@ -29,4 +29,4 @@ Tests exercise persistent dedupe, reminder and verified recovery, private file m
 
 ## Change management
 
-This Draft PR is stacked on **Draft PR #11 (P2-A)**. It must be restacked onto main once its parent is approved and merged. Neither PR is implicitly approved for Merge, Tag, Release, or Deploy.
+**P2-A (alert decision engine)** is merged on `main`. This Draft PR targets `main` directly. Neither PR is implicitly approved for Merge, Tag, Release, or Deploy.

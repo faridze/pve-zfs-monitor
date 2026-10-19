@@ -155,6 +155,9 @@ func readStateAt(dir int) (State, error) {
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return State{}, errors.New("trailing or malformed state content")
 	}
+	if err := validatePersistedState(previous); err != nil {
+		return State{}, fmt.Errorf("corrupt state: %w", err)
+	}
 	return previous, nil
 }
 
