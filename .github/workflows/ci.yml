@@ -52,3 +52,23 @@ jobs:
           for s in release/signing/*.sh; do
             bash -n "$s"
           done
+
+  public-lab-release-acceptance:
+    name: Debian 13 / public signed lab installer and rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed installer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test official public rc1 -> rc2 -> rc1 in disposable Debian 13
+        run: |
+          set -euo pipefail
+          docker run --rm --pull=always --security-opt no-new-privileges \
+            --mount "type=bind,source=$PWD,target=/src,readonly" \
+            debian:13-slim bash -ec '
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ca-certificates curl openssl python3 util-linux
+              bash /src/scripts/test-public-lab-release-lifecycle.sh
+            '
