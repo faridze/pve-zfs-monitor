@@ -235,7 +235,6 @@ func TestSimulatedEmailObserviumOutputsAreNotTransports(t *testing.T) {
 	}
 }
 
-
 func TestCollectorOutageRecoveryHasVerifiedHeartbeat(t *testing.T) {
 	outage, err := PoolSignals(nil, baseTime, false)
 	if err != nil {
