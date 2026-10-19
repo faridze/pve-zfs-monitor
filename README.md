@@ -2,7 +2,7 @@
 
 Lightweight Go-based ZFS and NVMe health monitoring for Proxmox VE, with planned Observium integration and independent alert notifications.
 
-> **Early foundation / not production-ready.** NVMe telemetry, notifications, integration, packaging and deployment are not implemented yet. Do not rely on this tool as a replacement for existing ZFS/SMART monitoring.
+> **Experimental / not production-ready.** Read-only ZFS and SMART/NVMe diagnostic collectors exist, and an offline alert-decision library is being developed. Automatic polling, durable alert state, Observium/mail delivery and production-safe deployment are **not** implemented. Do not replace existing monitoring.
 
 ## Current functionality
 
@@ -10,7 +10,8 @@ Lightweight Go-based ZFS and NVMe health monitoring for Proxmox VE, with planned
 - `status` and `check` commands, with optional `--json`.
 - `topology --json` for read-only ZFS vdev topology, error counters and scrub metadata (diagnostic).
 - `devices --json` for block inventory, ZFS-to-disk correlation and read-only SMART/NVMe health (diagnostic).
-- No daemon, no port, no installation hooks, no disk or pool changes.
+- Offline `internal/monitor` alert transition/deduplication logic (not wired into the CLI, no delivery) — see [P2 readiness](docs/p2-alert-readiness.md).
+- No daemon, no port, no automatic polling or notification, no disk or pool changes.
 - Zero third-party Go dependencies.
 
 ### Local build
