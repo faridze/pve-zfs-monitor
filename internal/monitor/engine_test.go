@@ -155,6 +155,8 @@ func TestClockRegressionsAndInvalidStateFailClosed(t *testing.T) {
 		{"invalid key", State{}, []Signal{{Key: "/dev/nvme0n1", Level: Healthy, Verified: true, ObservedAt: baseTime}}, baseTime, Options{}},
 		{"duplicate keys", State{}, []Signal{k, k}, baseTime, Options{}},
 		{"corrupted previous", State{Version: 1, Records: map[string]Record{k.Key: {Level: "broken"}}}, []Signal{k}, baseTime, Options{}},
+		{"zero version with records", State{Version: 0, Records: map[string]Record{k.Key: {Level: Critical}}}, []Signal{k}, baseTime, Options{}},
+		{"future last emitted", State{Version: 1, Records: map[string]Record{k.Key: {Level: Critical, LastEmittedAt: baseTime.Add(time.Hour).Unix()}}}, []Signal{k}, baseTime, Options{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := Decide(tc.prev, tc.sig, tc.now, tc.opt)

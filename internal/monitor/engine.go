@@ -136,7 +136,11 @@ func Decide(previous State, readings []Signal, now time.Time, opts Options) (Sta
 	if now.IsZero() || now.Unix() <= 0 {
 		return State{}, nil, errors.New("invalid observation clock")
 	}
-	if previous.Version != 0 && previous.Version != stateVersion {
+	if previous.Version == 0 {
+		if previous.LastRunUnix != 0 || len(previous.Records) > 0 {
+			return State{}, nil, errors.New("invalid previous monitoring state")
+		}
+	} else if previous.Version != stateVersion {
 		return State{}, nil, errors.New("unsupported state schema")
 	}
 	if previous.LastRunUnix > now.Unix() {
@@ -219,4 +223,33 @@ func Decide(previous State, readings []Signal, now time.Time, opts Options) (Sta
 		next.Records[k] = r
 	}
 	return next, events, nil
+}
+
+// validatePersistedState rejects on-disk snapshots that are present but not a
+// supported schema. It must run after JSON decode and before Decide.
+func validatePersistedState(s State) error {
+	if s.Version != stateVersion {
+		return fmt.Errorf("invalid state version %d", s.Version)
+	}
+	if s.Records == nil {
+		return errors.New("state records missing")
+	}
+	if s.LastRunUnix < 0 {
+		return errors.New("invalid last_run_unix")
+	}
+	if len(s.Records) > maxSignals {
+		return errors.New("too many state records")
+	}
+	for k, r := range s.Records {
+		if !validKey(k) || !validLevel(r.Level) {
+			return errors.New("invalid record in state")
+		}
+		if r.HealthyStreak < 0 || r.HealthyStreak > 10 {
+			return errors.New("invalid healthy streak in state")
+		}
+		if r.LastEmittedAt < 0 {
+			return errors.New("invalid last_emitted_at in state")
+		}
+	}
+	return nil
 }
