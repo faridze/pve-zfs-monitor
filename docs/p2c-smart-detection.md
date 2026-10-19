@@ -12,6 +12,16 @@ P2-C adds an offline normalization and detection layer on top of existing collec
 - Optional, conservative thresholds for temperature and percentage used (`DetectionOptions`; **0 disables**).
 - Incomplete SMART inventory, collection failures, ambiguous or missing member mappings, and duplicate paths claiming the same stable hardware identity.
 
+## Fail-closed evidence rules
+
+- `DeviceReport.CollectedAt` (RFC3339) is required when device collection is marked OK; stale, future, or malformed timestamps cause `Detect` to error rather than assume freshness.
+- Device signal `ObservedAt` uses collector `CollectedAt`, not the evaluation clock passed to `Decide`.
+- Host SMART coverage requires recognized `inventory_completeness`, `mapping_completeness`, and `smart_completeness` values of `*_complete`; anything else is `unknown`.
+- `HealthCollected` without usable SMART fields does not yield a verified healthy device signal.
+- Topology host coverage requires list-health enrichment without `report_issues`, missing pool roots, or inconsistent list comparison.
+- Verified ZFS `FAULTED` / `OFFLINE` / `UNAVAIL` severity is preserved when physical mapping is missing; ancillary mapping gaps downgrade only non-critical cases.
+- Conflicting counter directions on one member/device yield `unknown` and drop stored baselines for that key (conservative rebaseline after reset).
+
 ## Privacy and evidence rules
 
 - Persisted state stores only hashed `Key(scope, identity)` values and counter baselines. No serial numbers, WWNs, `/dev/*` paths, or raw SMART JSON in `state.json`.

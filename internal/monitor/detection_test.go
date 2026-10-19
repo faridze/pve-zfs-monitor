@@ -32,6 +32,15 @@ func loadDeviceFixture(name string) []byte {
 	return data
 }
 
+func deviceReportShell(collected time.Time) *device.DeviceReport {
+	return &device.DeviceReport{
+		CollectedAt:           collected.UTC().Format(time.RFC3339),
+		InventoryCompleteness: device.ReportInventoryComplete,
+		MappingCompleteness:   device.ReportMappingComplete,
+		SmartCompleteness:     device.ReportSmartComplete,
+	}
+}
+
 func TestDetectMirrorDegradedMemberCritical(t *testing.T) {
 	topo := loadZFSStatus("mirror_degraded.txt")
 	at := baseTime
@@ -88,13 +97,14 @@ func TestDetectDoesNotAlertHistoricalNonzeroCountersOnFirstBaseline(t *testing.T
 
 func TestDetectAmbiguousMemberMappingUnknown(t *testing.T) {
 	topo := loadZFSStatus("mirror_healthy.txt")
-	report := &device.DeviceReport{
-		MemberMappings: []device.MemberMapping{{
-			PoolName:      "rpool",
-			ZFSMemberName: "/dev/nvme0n1",
-			Outcome:       device.MappingAmbiguous,
-		}},
-	}
+	report := deviceReportShell(baseTime)
+	report.MappingCompleteness = device.ReportMappingIncomplete
+	report.SmartCompleteness = device.ReportSmartIncomplete
+	report.MemberMappings = []device.MemberMapping{{
+		PoolName:      "rpool",
+		ZFSMemberName: "/dev/nvme0n1",
+		Outcome:       device.MappingAmbiguous,
+	}}
 	signals, _, err := Detect(DetectionInput{
 		Topology: topo, TopologyOK: true,
 		Devices: report, DevicesOK: true,
@@ -140,14 +150,12 @@ func TestDetectDuplicatePathsSameHardwareUnknown(t *testing.T) {
 	h.DevicePath = "/dev/nvme0n1"
 	h2 := h
 	h2.DevicePath = "/dev/nvme0n1p3"
-	report := &device.DeviceReport{
-		SmartCompleteness: device.ReportSmartComplete,
-		Inventory: []device.PhysicalIdentity{
-			{DevicePath: "/dev/nvme0n1", StableHardwareID: "same-disk"},
-			{DevicePath: "/dev/nvme0n1p3", StableHardwareID: "same-disk"},
-		},
-		DeviceHealth: []device.DeviceHealth{h, h2},
+	report := deviceReportShell(baseTime)
+	report.Inventory = []device.PhysicalIdentity{
+		{DevicePath: "/dev/nvme0n1", StableHardwareID: "same-disk"},
+		{DevicePath: "/dev/nvme0n1p3", StableHardwareID: "same-disk"},
 	}
+	report.DeviceHealth = []device.DeviceHealth{h, h2}
 	signals, _, err := Detect(DetectionInput{Devices: report, DevicesOK: true}, nil, baseTime, DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -170,15 +178,13 @@ func TestDetectSMARTFailureAndMissingCollection(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.DevicePath = "/dev/nvme0n1"
-	report := &device.DeviceReport{
-		SmartCompleteness: device.ReportSmartComplete,
-		Inventory: []device.PhysicalIdentity{{
-			DevicePath:       "/dev/nvme0n1",
-			StableHardwareID: "nvme-test-1",
-			RuntimeLocator:   "nvme-test-1",
-		}},
-		DeviceHealth: []device.DeviceHealth{h},
-	}
+	report := deviceReportShell(baseTime)
+	report.Inventory = []device.PhysicalIdentity{{
+		DevicePath:       "/dev/nvme0n1",
+		StableHardwareID: "nvme-test-1",
+		RuntimeLocator:   "nvme-test-1",
+	}}
+	report.DeviceHealth = []device.DeviceHealth{h}
 	signals, _, err := Detect(DetectionInput{Devices: report, DevicesOK: true}, nil, baseTime, DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -204,14 +210,12 @@ func TestDetectOptionalTemperatureThresholdDisabledByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.DevicePath = "/dev/sda"
-	report := &device.DeviceReport{
-		SmartCompleteness: device.ReportSmartComplete,
-		Inventory: []device.PhysicalIdentity{{
-			DevicePath:       "/dev/sda",
-			StableHardwareID: "ata-test-1",
-		}},
-		DeviceHealth: []device.DeviceHealth{h},
-	}
+	report := deviceReportShell(baseTime)
+	report.Inventory = []device.PhysicalIdentity{{
+		DevicePath:       "/dev/sda",
+		StableHardwareID: "ata-test-1",
+	}}
+	report.DeviceHealth = []device.DeviceHealth{h}
 	signals, _, err := Detect(DetectionInput{Devices: report, DevicesOK: true}, nil, baseTime, DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)

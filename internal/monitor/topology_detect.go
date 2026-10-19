@@ -7,27 +7,72 @@ import (
 	"github.com/faridze/pve-zfs-monitor/internal/zfs"
 )
 
-func topologySignals(topo *zfs.TopologyReport, ok bool, report *device.DeviceReport, prev *Baselines, at time.Time) ([]Signal, map[string]MemberCounters, error) {
+func topologySignals(topo *zfs.TopologyReport, ok bool, report *device.DeviceReport, prev *Baselines, at time.Time) ([]Signal, map[string]MemberCounters, []string, error) {
 	hostKey, _ := Key("host", "zpool-topology")
 	if !ok || topo == nil || len(topo.Pools) == 0 {
-		return []Signal{{Key: hostKey, Level: Unknown, Verified: false, ObservedAt: at}}, nil, nil
+		return []Signal{{Key: hostKey, Level: Unknown, Verified: false, ObservedAt: at}}, nil, nil, nil
 	}
-	signals := []Signal{{Key: hostKey, Level: Healthy, Verified: true, ObservedAt: at}}
+	hostLevel := Healthy
+	hostVerified := true
+	if !topologyCollectionVerified(topo) {
+		hostLevel = Unknown
+		hostVerified = false
+	}
+	byKey := map[string]Signal{hostKey: {Key: hostKey, Level: hostLevel, Verified: hostVerified, ObservedAt: at}}
+	order := []string{hostKey}
 	mappingByMember := indexMappings(report)
 	updates := make(map[string]MemberCounters)
+	var clearKeys []string
+	hwToKeys := make(map[string][]string)
+
 	for _, pool := range topo.Pools {
 		if pool.Root == nil {
+			poolKey, _ := Key("pool", pool.Name)
+			if _, exists := byKey[poolKey]; !exists {
+				order = append(order, poolKey)
+			}
+			byKey[poolKey] = Signal{Key: poolKey, Level: Unknown, Verified: false, ObservedAt: at}
 			continue
 		}
 		walkLeaves(pool.Name, pool.Root, func(leaf zfs.VdevNode) {
-			sig, counters, update := evalMemberLeaf(pool.Name, leaf, mappingByMember, prev, at)
-			signals = append(signals, sig)
+			sig, counters, update, clear, hw := evalMemberLeaf(pool.Name, leaf, mappingByMember, prev, at)
+			if _, exists := byKey[sig.Key]; !exists {
+				order = append(order, sig.Key)
+			}
+			byKey[sig.Key] = sig
+			if hw != "" {
+				hwToKeys[hw] = append(hwToKeys[hw], sig.Key)
+			}
 			if update {
 				updates[sig.Key] = counters
 			}
+			if clear {
+				clearKeys = append(clearKeys, sig.Key)
+			}
 		})
 	}
-	return signals, updates, nil
+
+	for _, keys := range hwToKeys {
+		if len(keys) < 2 {
+			continue
+		}
+		seen := make(map[string]bool)
+		for _, k := range keys {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			byKey[k] = Signal{Key: k, Level: Unknown, Verified: false, ObservedAt: at}
+			clearKeys = append(clearKeys, k)
+			delete(updates, k)
+		}
+	}
+
+	signals := make([]Signal, 0, len(order))
+	for _, k := range order {
+		signals = append(signals, byKey[k])
+	}
+	return signals, updates, clearKeys, nil
 }
 
 func indexMappings(report *device.DeviceReport) map[string]*device.MemberMapping {
@@ -67,10 +112,14 @@ func isTopologyLeaf(n *zfs.VdevNode) bool {
 	}
 }
 
-func evalMemberLeaf(pool string, leaf zfs.VdevNode, mappings map[string]*device.MemberMapping, prev *Baselines, at time.Time) (Signal, MemberCounters, bool) {
+func evalMemberLeaf(pool string, leaf zfs.VdevNode, mappings map[string]*device.MemberMapping, prev *Baselines, at time.Time) (Signal, MemberCounters, bool, bool, string) {
 	mapKey := pool + "\x00" + leaf.Name
 	mapping := mappings[mapKey]
 	id := memberIdentity(pool, leaf.Name, mapping)
+	hw := ""
+	if mapping != nil && mapping.Physical != nil && mapping.Physical.StableHardwareID != "" {
+		hw = "hw:" + mapping.Physical.StableHardwareID
+	}
 	key, err := Key("device", id)
 	if err != nil {
 		key, _ = Key("device", "invalid-member")
@@ -81,16 +130,25 @@ func evalMemberLeaf(pool string, leaf zfs.VdevNode, mappings map[string]*device.
 	if mapping != nil {
 		switch mapping.Outcome {
 		case device.MappingAmbiguous:
-			return Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at}, MemberCounters{}, false
-		case device.MappingMissing, device.MappingUnsupported:
-			if level == Healthy {
-				level = Unknown
+			if sev, ok := zfsStateSeverity(leaf); ok && (sev == Critical || sev == Warning) {
+				return Signal{Key: key, Level: sev, Verified: leaf.StateObserved, ObservedAt: at}, MemberCounters{}, false, false, hw
 			}
-			verified = false
+			return Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at}, MemberCounters{}, false, false, hw
+		case device.MappingMissing, device.MappingUnsupported:
+			if sev, ok := zfsStateSeverity(leaf); ok && (sev == Critical || sev == Warning) {
+				level = sev
+				verified = leaf.StateObserved
+			} else if level == Healthy {
+				level = Unknown
+				verified = false
+			} else {
+				verified = false
+			}
 		}
 	}
 
 	cur := MemberCounters{Read: leaf.ReadErrors, Write: leaf.WriteErrors, Cksum: leaf.CksumErrors}
+	clearBaseline := false
 	if !countersComplete(cur) {
 		if level == Healthy {
 			level = Unknown
@@ -98,34 +156,50 @@ func evalMemberLeaf(pool string, leaf zfs.VdevNode, mappings map[string]*device.
 		verified = false
 	} else if prev != nil {
 		old := prev.Members[key]
-		delta, known := worstMemberCounterDelta(old, cur)
-		switch delta {
-		case counterIncreased:
-			if level == Healthy {
-				level = Warning
-			}
-			if leaf.CksumErrors != nil && old.Cksum != nil && *leaf.CksumErrors > *old.Cksum {
-				level = Critical
-			}
-		case counterDecreased, counterReset:
+		deltas := []counterDelta{
+			uint64Delta(old.Read, cur.Read),
+			uint64Delta(old.Write, cur.Write),
+			uint64Delta(old.Cksum, cur.Cksum),
+		}
+		if memberCounterDeltasConflict(deltas) {
 			level = Unknown
 			verified = false
-		case counterMissing:
-			if level == Healthy {
+			clearBaseline = true
+		} else {
+			delta, _ := worstMemberCounterDelta(old, cur)
+			switch delta {
+			case counterIncreased:
+				if level == Healthy {
+					level = Warning
+				}
+				if leaf.CksumErrors != nil && old.Cksum != nil && *leaf.CksumErrors > *old.Cksum {
+					level = Critical
+				}
+			case counterDecreased, counterReset:
 				level = Unknown
 				verified = false
+				clearBaseline = true
+			case counterMissing:
+				if level == Healthy {
+					level = Unknown
+					verified = false
+				}
+			case counterUnchanged:
 			}
-		case counterUnchanged:
-			// historical nonzero counters without increase do not imply new fault
 		}
-		_ = known
 	}
 
 	updateBaseline := countersComplete(cur) && verified
 	if mapping != nil && mapping.Outcome != device.MappingMapped && mapping.Outcome != device.MappingUnknown {
-		updateBaseline = false
+		if mapping.Outcome == device.MappingMissing || mapping.Outcome == device.MappingUnsupported {
+			if level != Critical && level != Warning {
+				updateBaseline = false
+			}
+		} else {
+			updateBaseline = false
+		}
 	}
-	return Signal{Key: key, Level: level, Verified: verified, ObservedAt: at}, cur, updateBaseline
+	return Signal{Key: key, Level: level, Verified: verified, ObservedAt: at}, cur, updateBaseline, clearBaseline, hw
 }
 
 func countersComplete(c MemberCounters) bool {

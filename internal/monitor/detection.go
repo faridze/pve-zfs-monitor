@@ -23,6 +23,8 @@ type DetectionInput struct {
 type DetectionOptions struct {
 	MaxTemperatureCelsius int
 	MaxPercentageUsed     int
+	// MaxReportAge bounds DeviceReport.CollectedAt relative to evaluation time (Detect observedAt).
+	MaxReportAge time.Duration
 }
 
 // Detect evaluates topology and SMART/device evidence into privacy-safe signals
@@ -31,6 +33,7 @@ func Detect(in DetectionInput, prev *Baselines, observedAt time.Time, opts Detec
 	if observedAt.IsZero() {
 		return nil, nil, fmt.Errorf("invalid observation time")
 	}
+	opts = normalizeDetectionOptions(opts)
 	next := cloneBaselines(prev)
 	var out []Signal
 
@@ -40,19 +43,33 @@ func Detect(in DetectionInput, prev *Baselines, observedAt time.Time, opts Detec
 	}
 	out = append(out, poolSignals...)
 
-	topoSignals, memberBase, err := topologySignals(in.Topology, in.TopologyOK, in.Devices, prev, observedAt)
+	topoSignals, memberBase, memberClear, err := topologySignals(in.Topology, in.TopologyOK, in.Devices, prev, observedAt)
 	if err != nil {
 		return nil, nil, err
 	}
 	out = append(out, topoSignals...)
 	mergeMemberBaselines(next, memberBase)
+	clearMemberBaselines(next, memberClear)
 
-	deviceSignals, deviceBase, err := deviceSignals(in.Devices, in.DevicesOK, prev, observedAt, opts)
+	deviceAt, deviceTimeOK, err := resolveDeviceObservationTime(in.Devices, in.DevicesOK, observedAt, opts.MaxReportAge)
+	if err != nil {
+		return nil, nil, err
+	}
+	if in.DevicesOK && in.Devices != nil && !deviceTimeOK {
+		return nil, nil, fmt.Errorf("device report freshness could not be verified")
+	}
+	deviceObservedAt := observedAt
+	if deviceTimeOK {
+		deviceObservedAt = deviceAt
+	}
+
+	deviceSignals, deviceBase, deviceClear, err := deviceSignals(in.Devices, in.DevicesOK, prev, deviceObservedAt, opts)
 	if err != nil {
 		return nil, nil, err
 	}
 	out = append(out, deviceSignals...)
 	mergeDeviceBaselines(next, deviceBase)
+	clearDeviceBaselines(next, deviceClear)
 
 	if err := validateBaselines(next); err != nil {
 		return nil, nil, err
@@ -103,6 +120,18 @@ func mergeMemberBaselines(dst *Baselines, src map[string]MemberCounters) {
 func mergeDeviceBaselines(dst *Baselines, src map[string]DeviceCounters) {
 	for k, v := range src {
 		dst.Devices[k] = v
+	}
+}
+
+func clearMemberBaselines(dst *Baselines, keys []string) {
+	for _, k := range keys {
+		delete(dst.Members, k)
+	}
+}
+
+func clearDeviceBaselines(dst *Baselines, keys []string) {
+	for _, k := range keys {
+		delete(dst.Devices, k)
 	}
 }
 

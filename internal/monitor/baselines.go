@@ -118,6 +118,20 @@ func int64Delta(prev, cur *int64) counterDelta {
 	return counterUnchanged
 }
 
+func memberCounterDeltasConflict(deltas []counterDelta) bool {
+	hasInc := false
+	hasDec := false
+	for _, d := range deltas {
+		if d == counterIncreased {
+			hasInc = true
+		}
+		if d == counterDecreased || d == counterReset {
+			hasDec = true
+		}
+	}
+	return hasInc && hasDec
+}
+
 func worstMemberCounterDelta(prev MemberCounters, cur MemberCounters) (counterDelta, bool) {
 	worst := counterUnchanged
 	anyKnown := false

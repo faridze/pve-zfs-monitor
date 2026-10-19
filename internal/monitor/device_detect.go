@@ -6,21 +6,12 @@ import (
 	"github.com/faridze/pve-zfs-monitor/internal/device"
 )
 
-func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at time.Time, opts DetectionOptions) ([]Signal, map[string]DeviceCounters, error) {
+func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at time.Time, opts DetectionOptions) ([]Signal, map[string]DeviceCounters, []string, error) {
 	coverageKey, _ := Key("host", "device-smart-coverage")
 	if !ok || report == nil {
-		return []Signal{{Key: coverageKey, Level: Unknown, Verified: false, ObservedAt: at}}, nil, nil
+		return []Signal{{Key: coverageKey, Level: Unknown, Verified: false, ObservedAt: at}}, nil, nil, nil
 	}
-	coverageLevel := Healthy
-	coverageVerified := true
-	switch report.SmartCompleteness {
-	case device.ReportSmartIncomplete, device.ReportInventoryIncomplete, device.ReportInventoryFailed:
-		coverageLevel = Unknown
-		coverageVerified = false
-	case device.ReportSmartNotAttempted:
-		coverageLevel = Unknown
-		coverageVerified = false
-	}
+	coverageLevel, coverageVerified := deviceCoverageFromReport(report)
 	signals := []Signal{{Key: coverageKey, Level: coverageLevel, Verified: coverageVerified, ObservedAt: at}}
 	physByPath := make(map[string]device.PhysicalIdentity)
 	for _, p := range report.Inventory {
@@ -29,6 +20,7 @@ func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at tim
 		}
 	}
 	updates := make(map[string]DeviceCounters)
+	var clearKeys []string
 	seen := make(map[string]bool)
 	for _, h := range report.DeviceHealth {
 		phys := physByPath[h.DevicePath]
@@ -41,21 +33,24 @@ func deviceSignals(report *device.DeviceReport, ok bool, prev *Baselines, at tim
 			continue
 		}
 		if seen[key] {
-			// Same physical identity must not be evaluated twice from duplicate paths.
 			signals = append(signals, Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at})
+			clearKeys = append(clearKeys, key)
 			continue
 		}
 		seen[key] = true
-		sig, cur, update := evalDeviceHealth(key, h, prev, at, opts)
+		sig, cur, update, clear := evalDeviceHealth(key, h, prev, at, opts)
 		signals = append(signals, sig)
 		if update {
 			updates[key] = cur
 		}
+		if clear {
+			clearKeys = append(clearKeys, key)
+		}
 	}
-	return signals, updates, nil
+	return signals, updates, clearKeys, nil
 }
 
-func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at time.Time, opts DetectionOptions) (Signal, DeviceCounters, bool) {
+func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at time.Time, opts DetectionOptions) (Signal, DeviceCounters, bool, bool) {
 	verified := true
 	level := Healthy
 
@@ -68,7 +63,12 @@ func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at tim
 		level = Unknown
 		verified = false
 	default:
-		return Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at}, DeviceCounters{}, false
+		return Signal{Key: key, Level: Unknown, Verified: false, ObservedAt: at}, DeviceCounters{}, false, false
+	}
+
+	if h.CollectionStatus == device.HealthCollected && !hasUsableSMARTEvidence(h) {
+		level = Unknown
+		verified = false
 	}
 
 	if h.SmartPassed != nil && !*h.SmartPassed {
@@ -104,32 +104,41 @@ func evalDeviceHealth(key string, h device.DeviceHealth, prev *Baselines, at tim
 		DataIntegrityErrors: numericInt64(h.DataIntegrityErrors),
 		ErrorLogEntries:     numericInt64(h.ErrorLogEntries),
 	}
+	clearBaseline := false
 	if prev != nil {
 		old := prev.Devices[key]
-		for _, d := range []counterDelta{
+		deltas := []counterDelta{
 			int64Delta(old.MediaErrors, cur.MediaErrors),
 			int64Delta(old.DataIntegrityErrors, cur.DataIntegrityErrors),
 			int64Delta(old.ErrorLogEntries, cur.ErrorLogEntries),
-		} {
-			switch d {
-			case counterIncreased:
-				if level == Healthy {
-					level = Warning
-				}
-			case counterDecreased, counterReset:
-				level = Unknown
-				verified = false
-			case counterMissing:
-				if level == Healthy {
+		}
+		if memberCounterDeltasConflict(deltas) {
+			level = Unknown
+			verified = false
+			clearBaseline = true
+		} else {
+			for _, d := range deltas {
+				switch d {
+				case counterIncreased:
+					if level == Healthy {
+						level = Warning
+					}
+				case counterDecreased, counterReset:
 					level = Unknown
 					verified = false
+					clearBaseline = true
+				case counterMissing:
+					if level == Healthy {
+						level = Unknown
+						verified = false
+					}
 				}
 			}
 		}
 	}
 
-	update := h.CollectionStatus == device.HealthCollected && verified
-	return Signal{Key: key, Level: level, Verified: verified, ObservedAt: at}, cur, update
+	update := h.CollectionStatus == device.HealthCollected && verified && hasUsableSMARTEvidence(h)
+	return Signal{Key: key, Level: level, Verified: verified, ObservedAt: at}, cur, update, clearBaseline
 }
 
 func numericInt64(n *device.SmartNumeric) *int64 {
