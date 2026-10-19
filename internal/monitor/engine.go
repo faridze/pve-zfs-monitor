@@ -73,9 +73,9 @@ type Record struct {
 }
 
 type State struct {
-	Version       int               `json:"version"`
-	LastRunUnix   int64             `json:"last_run_unix,omitempty"`
-	Records       map[string]Record `json:"records"`
+	Version     int               `json:"version"`
+	LastRunUnix int64             `json:"last_run_unix,omitempty"`
+	Records     map[string]Record `json:"records"`
 }
 
 type Options struct {
