@@ -13,13 +13,15 @@ const (
 
 // Entry is one durable notification intent.
 type Entry struct {
-	ID          string        `json:"id"`
-	Event       monitor.Event `json:"event"`
-	CreatedAt   int64         `json:"created_at_unix"`
-	DeliveredAt int64         `json:"delivered_at_unix,omitempty"`
-	Attempts    int           `json:"attempts,omitempty"`
-	Status      Status        `json:"status"`
-	LastError   string        `json:"last_error,omitempty"`
+	ID            string        `json:"id"`
+	LogicalID     string        `json:"logical_id,omitempty"`
+	Event         monitor.Event `json:"event"`
+	CreatedAt     int64         `json:"created_at_unix"`
+	DeliveredAt   int64         `json:"delivered_at_unix,omitempty"`
+	NextRetryUnix int64         `json:"next_retry_unix,omitempty"`
+	Attempts      int           `json:"attempts,omitempty"`
+	Status        Status        `json:"status"`
+	LastError     string        `json:"last_error,omitempty"`
 }
 
 // Snapshot is the on-disk outbox document.
@@ -41,6 +43,12 @@ func validateEntry(e Entry) error {
 		return errInvalidEntry
 	}
 	if e.CreatedAt <= 0 {
+		return errInvalidEntry
+	}
+	if e.LogicalID != "" && len(e.LogicalID) > 64 {
+		return errInvalidEntry
+	}
+	if e.NextRetryUnix < 0 {
 		return errInvalidEntry
 	}
 	if e.Attempts < 0 || e.Attempts > 100 {

@@ -25,7 +25,13 @@ func TestMonitorEventsToOutboxAndObserviumExport(t *testing.T) {
 	if _, err := store.DeliverPending("lab", fake, now); err != nil {
 		t.Fatal(err)
 	}
-	sum, err := observium.SummarizeSignals([]monitor.Signal{sig}, now, 1)
+	sum, err := observium.BuildSummary(observium.ExportInput{
+		Signals:           []monitor.Signal{sig},
+		CollectedAt:       now,
+		EvaluatedAt:       now,
+		SmartCompleteness: observium.SmartComplete,
+		EventsPending:     1,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -226,6 +226,11 @@ func Decide(previous State, readings []Signal, now time.Time, opts Options) (Sta
 	return next, events, nil
 }
 
+// ValidatePersistedState rejects snapshots that are present but not a supported schema.
+func ValidatePersistedState(s State) error {
+	return validatePersistedState(s)
+}
+
 // validatePersistedState rejects on-disk snapshots that are present but not a
 // supported schema. It must run after JSON decode and before Decide.
 func validatePersistedState(s State) error {
