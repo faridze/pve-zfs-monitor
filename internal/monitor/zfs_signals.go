@@ -10,7 +10,7 @@ import (
 
 // PoolSignals normalizes the read-only zpool list result. It is not an
 // automatic collector: callers must pass the collection result explicitly.
-// Member, SMART and scrub findings require separate future detectors.
+// Member-level topology and SMART findings are produced by Detect (P2-C).
 func PoolSignals(pools []zfs.Pool, observedAt time.Time, collectionOK bool) ([]Signal, error) {
 	if !collectionOK || len(pools) == 0 {
 		key, _ := Key("host", "zpool-list")
