@@ -1,59 +1,68 @@
-# P3: Observium and mail delivery (offline / non-production)
+# P3: Observium export, durable outbox, and mail transport
 
-**Status:** library and synthetic tests only. No systemd socket, xinetd, production Observium server changes, or real SMTP.
+**Status (offline):** Implemented and covered by synthetic Go tests. **Not verified** against a live Observium poller, Proxmox notification matcher, or real MTA.
 
-## Observium integration architecture (verified)
+## A — Observium (`internal/observium`)
 
-Per [Observium Unix Agent](https://docs.observium.org/unix_agent/):
+### Native Observium overlap
 
-- SNMP remains required on the device; the agent supplements SNMP via TCP **36602** (or local script invocation).
-- The poller pulls all agent modules in one connection into `$agent_data['app'][<name>]`.
-- Emitting a custom text block **does not create graphs** until Observium ships a matching `includes/polling/applications/<app>.inc.php`, RRD definitions, and UI graphs ([Adding an Application](https://docs.observium.org/developing/add_app/)).
+Observium already ships ZFS pool monitoring and SMART/NVMe-oriented checks via SNMP and other applications. This project does **not** duplicate raw SMART attributes, serials, WWNs, pool names, or device paths. The `pve_zfs_monitor` application section exports **P2-C decision aggregates** only: host overall level, pool-scoped level counts, signal level counts, SMART collection completeness, collection failure flag, data freshness (`stale_observation`), verified critical count, worst level, pending notification count, and `report_fully_healthy` (fail-closed).
 
-### Supported approach in this repository
+### Unix Agent contract (schema v2)
 
-1. **Agent script output (host side):** `internal/observium` renders a single application section `pve_zfs_monitor` with privacy-safe aggregate fields derived from `monitor` signals (hashed keys only, no pool names, serials or paths).
-2. **Observium server side (out of repo):** A future `pve_zfs_monitor` application module must be added to Observium to parse the section and define RRD/graphs. This phase delivers the **contract and fixtures** only.
-3. **Native overlap:** Prefer Observium built-in ZFS/SMART where sufficient; this app exposes **P2-C decision summary** (worst level, alert/recovery counts) rather than duplicating raw SMART attributes.
+Wire format: `<<<pve_zfs_monitor>>>` header, then fixed `key=value` lines (max ~8 KiB). Required keys are enumerated in `internal/observium/agent.go`. `ParseAppSection` is a strict fake consumer: rejects duplicate, missing, unknown, malformed integers, inconsistent totals, and inconsistent `worst_level` / `report_fully_healthy`.
 
-### Application wire format
+Empty, stale, unverified, partially collected, or incomplete SMART snapshots **never** set `report_fully_healthy=1`. Independently verified critical signals keep `worst_level=critical` even when other signals are unknown.
 
-```
-<<<pve_zfs_monitor>>>
-schema_version=1
-collected_at=2026-10-20T12:00:00Z
-signals_total=12
-signals_healthy=8
-signals_warning=1
-signals_critical=1
-signals_unknown=2
-worst_level=critical
-events_pending=1
-```
+### Server-side Observium (not in repo)
 
-Lines are `key=value`; values are bounded integers or enumerated levels. Total output is capped (8 KiB).
+Per [Unix Agent](https://docs.observium.org/unix_agent/) and [Adding an Application](https://docs.observium.org/developing/add_app/):
 
-## Mail and outbox architecture
+1. Agent output alone does not create graphs or alert rules.
+2. Operators need `includes/polling/applications/pve_zfs_monitor.inc.php`, RRD definitions, and UI graph pages.
+3. Experimental reference PHP lives under `examples/observium/` with synthetic fixtures only — **not lab-verified**.
 
-P2-B `FileStore.Advance` persists dedupe state but **does not** deliver notifications. P3 adds:
+Do not open port 36602 or configure xinetd/systemd from this repository.
 
-1. **`internal/outbox`:** Append-only durable queue of `monitor.Event` records with delivery state (`pending`, `delivered`, `failed`), atomic same-directory writes, and idempotent keys.
-2. **`MailFormatter`:** Proxmox-style plain-text body (subject + body) without embedding raw hardware identifiers.
-3. **`Transport` interface:** `Send(ctx, message)`; default tests use `FakeTransport` (in-memory, no network).
+## B — Atomic outbox (`internal/delivery` + `internal/outbox`)
 
-Delivery is **opt-in** and disabled by default. A future scheduler calls `outbox.Store.Enqueue` after `Advance` / `DecideWithDetection`, then `DeliverPending` with a configured transport.
+P2-B `FileStore.Advance()` persisted dedupe state only. P3 combines monitor state and notification outbox in one `state.json` document (`format_version: 2`). Legacy v1 state files migrate on read (empty outbox).
 
-## Non-goals (this phase)
+`delivery.Coordinator.AdvanceDetection()` holds an exclusive lock, runs `DecideWithDetection`, enqueues events with dedupe fingerprints, and **atomically** writes state + outbox (rename + fsync). There is no supported path that calls `Advance` and `Enqueue` as separate durable steps.
 
-- No merge to production nodes, no open port 36602, no real recipients in CI.
-- No duplicate ZED kernel-event mail; operators must configure matchers separately.
-- No exactly-once guarantee across SMTP; outbox + ack reduces loss but does not replace remote MTA semantics.
+`DeliverNotifications()` delivers pending and **failed-but-retryable** entries (bounded exponential backoff), then persists acknowledgments in the same locked write.
+
+**Semantics:** durable notification **intent** with **at-least-once** external delivery. If the process crashes after transport success but before the durable ack is written, a retry may produce a duplicate external message. Exactly-once is not claimed.
+
+**Ordering:** deliverable entries sort by severity (Critical alert first, then Warning, Unknown, Reminder, Recovery) then age, so a pending Critical is sent before a later Recovery.
+
+**Privacy:** queue entries store hashed signal keys only; no recipients, credentials, or raw hardware identifiers on disk.
+
+Linux implementation: `internal/delivery/persist_linux.go` (private `0700` dir, path traversal checks, `flock`, atomic replace). Non-Linux builds expose a stub coordinator for compile-only CI.
+
+## C — Mail transport (`internal/outbox`)
+
+- `Transport` interface with `Send(ctx, message)` — opt-in, no default production transport.
+- `FakeTransport` for all automated tests (no network, no shell).
+- `FormatMessage` / `FormatProxmoxStyle`: Critical, Warning, Unknown, Reminder, Recovery plain-text bodies; bounded size; hashed keys only.
+- `SystemMailTransport` in `systemmail_stub.go`: **disabled prototype** (fixed executable path, argument array, deadline) — not validated on a PVE lab; do not enable in CI.
+
+### Duplicate alerts with ZED / Observium / this monitor
+
+ZED, Observium, and pve-zfs-monitor can all surface storage problems through different channels. Operators should pick **one authoritative route** per severity class (for example: ZED for immediate kernel events, this monitor for verified policy, Observium for dashboards) and disable or filter overlapping matchers elsewhere. This project does not modify ZED, smartd, Postfix, Exim, or Proxmox notification matchers.
 
 ## Testing
 
 ```bash
-go test -count=1 ./internal/observium ./internal/outbox
-go test -race ./internal/outbox
+gofmt -w ./internal ./cmd
+go test -count=1 ./...
+go test -race -count=1 ./...
+go vet ./...
+CGO_ENABLED=0 go build -trimpath -o /tmp/pve-zfs-monitor ./cmd/pve-zfs-monitor
 ```
 
-Synthetic fake SMTP via `FakeTransport` only.
+Linux-only integration: `internal/delivery/*_linux_test.go` (restart survival, legacy migration, corrupt document, concurrent lock, topology scenarios).
+
+## PR scope note
+
+P3-A/B/C are delivered together on Draft PR #14 (`cursor/p3-observium-mail-outbox-8c2d`). A stacked split (P3-B on top of P3-A) is possible for review but not required for this milestone.
