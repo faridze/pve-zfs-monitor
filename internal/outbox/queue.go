@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -14,7 +15,15 @@ const (
 	maxAttempts      = 10
 	baseRetrySeconds = 30
 	maxRetrySeconds  = 3600
+	// TransportTimeout bounds transport work outside the state lock.
+	TransportTimeout = 30 * time.Second
 )
+
+// DeliveryResult is one transport attempt outside the state lock.
+type DeliveryResult struct {
+	ID      string
+	SendErr error
+}
 
 // Queue holds notification entries in memory or as part of a snapshot.
 type Queue struct {
@@ -25,13 +34,19 @@ func (q *Queue) Entries() []Entry {
 	return append([]Entry(nil), q.entries...)
 }
 
-// EnqueueDeduped appends events unless an equivalent pending/failed-retryable entry exists.
+// EnqueueDeduped appends events unless an equivalent pending/retryable entry exists.
 func (q *Queue) EnqueueDeduped(events []monitor.Event, now time.Time) error {
 	if now.IsZero() {
 		return errors.New("invalid time")
 	}
+	if err := q.prepareForEnqueue(now); err != nil {
+		return err
+	}
 	for _, ev := range events {
-		fp := eventFingerprint(ev)
+		fp, err := entryLogicalID(ev)
+		if err != nil {
+			return err
+		}
 		if q.hasActiveFingerprint(fp) {
 			continue
 		}
@@ -62,7 +77,7 @@ func (q *Queue) hasActiveFingerprint(fp string) bool {
 		if e.LogicalID != fp {
 			continue
 		}
-		if e.Status == StatusPending || e.Status == StatusDelivered {
+		if e.Status == StatusPending {
 			return true
 		}
 		if e.Status == StatusFailed && e.Attempts < maxAttempts {
@@ -128,7 +143,7 @@ func ApplyDeliveryResult(e *Entry, now time.Time, sendErr error) {
 		return
 	}
 	e.Status = StatusFailed
-	e.LastError = truncateErr(sendErr.Error())
+	e.LastError = sanitizeTransportError(sendErr.Error())
 	if e.Attempts >= maxAttempts {
 		e.NextRetryUnix = 0
 		return
@@ -145,15 +160,8 @@ func ApplyDeliveryResult(e *Entry, now time.Time, sendErr error) {
 }
 
 func eventFingerprint(e monitor.Event) string {
-	sum := sha256.Sum256([]byte(string(e.Kind) + "\x00" + e.Key + "\x00" + string(e.Level)))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%d", e.Kind, e.Key, e.Level, e.EmittedUnix)))
 	return hex.EncodeToString(sum[:16])
-}
-
-func truncateErr(s string) string {
-	if len(s) > 200 {
-		return s[:200]
-	}
-	return s
 }
 
 func (q *Queue) LoadSnapshot(s Snapshot) error {
@@ -163,8 +171,18 @@ func (q *Queue) LoadSnapshot(s Snapshot) error {
 	if len(s.Entries) > maxEntries {
 		return errInvalidSnapshot
 	}
+	seenID := map[string]bool{}
+	seenLogical := map[string]bool{}
 	out := make([]Entry, 0, len(s.Entries))
 	for _, e := range s.Entries {
+		if seenID[e.ID] {
+			return errInvalidSnapshot
+		}
+		seenID[e.ID] = true
+		if seenLogical[e.LogicalID] {
+			return errInvalidSnapshot
+		}
+		seenLogical[e.LogicalID] = true
 		if err := validateEntry(e); err != nil {
 			return err
 		}
@@ -188,4 +206,28 @@ func (q *Queue) PendingCount() int {
 		}
 	}
 	return n
+}
+
+// ApplyDeliveryResults updates entries by stable ID after out-of-lock transport.
+func (q *Queue) ApplyDeliveryResults(results []DeliveryResult, now time.Time) int {
+	if now.IsZero() {
+		return 0
+	}
+	applied := 0
+	for _, r := range results {
+		for i := range q.entries {
+			if q.entries[i].ID != r.ID {
+				continue
+			}
+			if q.entries[i].Status == StatusDelivered {
+				break
+			}
+			ApplyDeliveryResult(&q.entries[i], now, r.SendErr)
+			if r.SendErr == nil {
+				applied++
+			}
+			break
+		}
+	}
+	return applied
 }

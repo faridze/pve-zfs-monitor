@@ -4,6 +4,7 @@ package delivery
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -79,6 +80,42 @@ func TestCorruptDocumentFailsClosed(t *testing.T) {
 	_, err := Store{Directory: dir}.Load()
 	if err == nil {
 		t.Fatal("expected corrupt load failure")
+	}
+}
+
+func TestCorruptPersistedStateBlocksAdvanceAndDelivery(t *testing.T) {
+	dir := privateDir(t)
+	cases := [][]byte{
+		{},
+		[]byte("null"),
+		[]byte("{}"),
+		[]byte(`{"format_version":2,"state":{"version":1,"records":{}}}`),
+	}
+	for i, raw := range cases {
+		sub := filepath.Join(dir, fmt.Sprintf("case-%d", i))
+		if err := os.Mkdir(sub, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if len(raw) > 0 {
+			if err := os.WriteFile(filepath.Join(sub, "state.json"), raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err := os.WriteFile(filepath.Join(sub, "state.json"), raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		c := Coordinator{Store: Store{Directory: sub}}
+		now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+		in := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "DEGRADED"}}}
+		_, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+		if err == nil {
+			t.Fatalf("case %d: advance should fail", i)
+		}
+		_, err = c.DeliverNotifications("lab", &outbox.FakeTransport{}, now)
+		if err == nil {
+			t.Fatalf("case %d: deliver should fail", i)
+		}
 	}
 }
 

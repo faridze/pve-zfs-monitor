@@ -12,9 +12,10 @@ import (
 func TestOutboxEnqueueDeliverFakeTransport(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	ev := monitor.Event{
-		Key:   "pool:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		Kind:  monitor.Alert,
-		Level: monitor.Critical,
+		Key:         "pool:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Kind:        monitor.Alert,
+		Level:       monitor.Critical,
+		EmittedUnix: now.Unix(),
 	}
 	store := &MemoryStore{}
 	if err := store.Enqueue([]monitor.Event{ev}, now); err != nil {
@@ -44,9 +45,10 @@ func TestOutboxJSONRoundTrip(t *testing.T) {
 	now := time.Unix(1730000000, 0).UTC()
 	store := &MemoryStore{}
 	_ = store.Enqueue([]monitor.Event{{
-		Key:   "host:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		Kind:  monitor.Reminder,
-		Level: monitor.Warning,
+		Key:         "host:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Kind:        monitor.Reminder,
+		Level:       monitor.Warning,
+		EmittedUnix: now.Unix(),
 	}}, now)
 	data, err := json.Marshal(store)
 	if err != nil {

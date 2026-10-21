@@ -93,6 +93,9 @@ func readFileAt(dir int, name string) ([]byte, error) {
 	if len(data) > maxDocSize {
 		return nil, errors.New("oversized file")
 	}
+	if len(data) == 0 {
+		return nil, errors.New("empty state file")
+	}
 	return data, nil
 }
 

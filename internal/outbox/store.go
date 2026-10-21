@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -55,7 +56,7 @@ func (m *MemoryStore) UnmarshalJSON(data []byte) error {
 	return m.LoadSnapshot(s)
 }
 
-// DeliverQueue delivers ready entries and persists results in q.
+// DeliverQueue delivers ready entries and persists results in q (in-process lock holder).
 func DeliverQueue(q *Queue, hostLabel string, transport Transport, now time.Time) (int, error) {
 	if transport == nil {
 		return 0, errInvalidSnapshot
@@ -63,18 +64,34 @@ func DeliverQueue(q *Queue, hostLabel string, transport Transport, now time.Time
 	if now.IsZero() {
 		return 0, errInvalidSnapshot
 	}
-	delivered := 0
+	var results []DeliveryResult
 	for _, i := range q.Deliverable(now) {
-		msg, err := FormatMessage(hostLabel, q.entries[i].Event)
+		entry := q.entries[i]
+		msg, err := FormatMessage(hostLabel, entry.Event)
 		if err != nil {
-			ApplyDeliveryResult(&q.entries[i], now, err)
+			results = append(results, DeliveryResult{ID: entry.ID, SendErr: err})
 			continue
 		}
-		err = transport.Send(nil, msg)
-		ApplyDeliveryResult(&q.entries[i], now, err)
-		if err == nil {
-			delivered++
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), TransportTimeout)
+		sendErr := transport.Send(ctx, msg)
+		cancel()
+		results = append(results, DeliveryResult{ID: entry.ID, SendErr: sendErr})
 	}
-	return delivered, nil
+	return q.ApplyDeliveryResults(results, now), nil
+}
+
+// EntryIDsForDelivery returns stable IDs and messages for deliverable entries.
+func (q *Queue) EntryIDsForDelivery(hostLabel string, now time.Time) (ids []string, msgs []Message, formatErrs map[string]error) {
+	formatErrs = map[string]error{}
+	for _, i := range q.Deliverable(now) {
+		entry := q.entries[i]
+		msg, err := FormatMessage(hostLabel, entry.Event)
+		if err != nil {
+			formatErrs[entry.ID] = err
+			continue
+		}
+		ids = append(ids, entry.ID)
+		msgs = append(msgs, msg)
+	}
+	return ids, msgs, formatErrs
 }

@@ -32,7 +32,11 @@ P2-B `FileStore.Advance()` persisted dedupe state only. P3 combines monitor stat
 
 `DeliverNotifications()` delivers pending and **failed-but-retryable** entries (bounded exponential backoff), then persists acknowledgments in the same locked write.
 
-**Semantics:** durable notification **intent** with **at-least-once** external delivery. If the process crashes after transport success but before the durable ack is written, a retry may produce a duplicate external message. Exactly-once is not claimed.
+**Semantics:** durable notification **intent** with **at-least-once** external delivery. Transport runs **outside** the state file lock (bounded `context` timeout). If the process crashes after transport success but before the durable ack is written, a retry may produce a duplicate external message. Exactly-once is not claimed.
+
+**Dedupe:** outbox logical IDs include `emitted_unix` from `monitor.Event` so a delivered alert does not block a new alert after recovery. Only pending and retryable failed entries suppress duplicates.
+
+**Retention:** delivered entries older than `DeliveredRetention` (48h) are compacted before enqueue/delivery. Pending, retryable, and terminal undelivered entries are never silently dropped.
 
 **Ordering:** deliverable entries sort by severity (Critical alert first, then Warning, Unknown, Reminder, Recovery) then age, so a pending Critical is sent before a later Recovery.
 

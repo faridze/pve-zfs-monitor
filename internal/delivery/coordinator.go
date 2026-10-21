@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -37,6 +38,7 @@ func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, 
 		if err := q.LoadSnapshot(doc.Outbox); err != nil {
 			return err
 		}
+		q.CompactDelivered(now)
 		if err := q.EnqueueDeduped(events, now); err != nil {
 			return err
 		}
@@ -60,11 +62,15 @@ func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, 
 }
 
 // DeliverNotifications delivers pending/retryable outbox entries and persists acknowledgments.
+// Transport runs outside the state lock; duplicate external delivery is possible if the process
+// crashes after transport success but before the durable acknowledgment is written.
 func (c Coordinator) DeliverNotifications(hostLabel string, transport outbox.Transport, now time.Time) (int, error) {
 	if transport == nil {
 		return 0, errors.New("missing transport")
 	}
-	delivered := 0
+	var ids []string
+	var msgs []outbox.Message
+	var formatErrs map[string]error
 	err := c.Store.withLock(func(dir int) error {
 		data, err := readFileAt(dir, stateFileName)
 		if err != nil {
@@ -78,11 +84,39 @@ func (c Coordinator) DeliverNotifications(hostLabel string, transport outbox.Tra
 		if err := q.LoadSnapshot(doc.Outbox); err != nil {
 			return err
 		}
-		n, err := outbox.DeliverQueue(q, hostLabel, transport, now)
+		q.CompactDelivered(now)
+		ids, msgs, formatErrs = q.EntryIDsForDelivery(hostLabel, now)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	var results []outbox.DeliveryResult
+	for i, id := range ids {
+		ctx, cancel := context.WithTimeout(context.Background(), outbox.TransportTimeout)
+		sendErr := transport.Send(ctx, msgs[i])
+		cancel()
+		results = append(results, outbox.DeliveryResult{ID: id, SendErr: sendErr})
+	}
+	for id, ferr := range formatErrs {
+		results = append(results, outbox.DeliveryResult{ID: id, SendErr: ferr})
+	}
+	delivered := 0
+	err = c.Store.withLock(func(dir int) error {
+		data, err := readFileAt(dir, stateFileName)
 		if err != nil {
 			return err
 		}
-		delivered = n
+		doc, err := decodeDocument(data)
+		if err != nil {
+			return err
+		}
+		q := &outbox.Queue{}
+		if err := q.LoadSnapshot(doc.Outbox); err != nil {
+			return err
+		}
+		delivered = q.ApplyDeliveryResults(results, now)
+		q.CompactDelivered(now)
 		doc.Outbox = q.Snapshot()
 		encoded, err := encodeDocument(doc)
 		if err != nil {

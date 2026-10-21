@@ -8,9 +8,18 @@ import (
 	"github.com/faridze/pve-zfs-monitor/internal/monitor"
 )
 
+func testKey() string {
+	k, _ := monitor.Key("host", "queue-test")
+	return k
+}
+
+func testEvent(kind monitor.Kind, level monitor.Level, emitted int64) monitor.Event {
+	return monitor.Event{Key: testKey(), Kind: kind, Level: level, EmittedUnix: emitted}
+}
+
 func TestFailedEntryRetriesAfterBackoff(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	ev := monitor.Event{Key: "host:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", Kind: monitor.Alert, Level: monitor.Critical}
+	ev := testEvent(monitor.Alert, monitor.Critical, 100)
 	q := &Queue{}
 	if err := q.EnqueueDeduped([]monitor.Event{ev}, now); err != nil {
 		t.Fatal(err)
@@ -19,7 +28,7 @@ func TestFailedEntryRetriesAfterBackoff(t *testing.T) {
 	if _, err := DeliverQueue(q, "lab", failing, now); err != nil {
 		t.Fatal(err)
 	}
-	if q.Deliverable(now.Add(time.Minute)) != nil {
+	if len(q.Deliverable(now.Add(time.Minute))) != 0 {
 		// still in backoff
 	}
 	idxs := q.Deliverable(now.Add(31 * time.Second))
@@ -35,7 +44,7 @@ func TestFailedEntryRetriesAfterBackoff(t *testing.T) {
 
 func TestAtLeastOnceWhenAckNotPersisted(t *testing.T) {
 	now := time.Unix(1730000000, 0).UTC()
-	ev := monitor.Event{Key: "host:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", Kind: monitor.Alert, Level: monitor.Critical}
+	ev := testEvent(monitor.Alert, monitor.Critical, 100)
 	q := &Queue{}
 	if err := q.EnqueueDeduped([]monitor.Event{ev}, now); err != nil {
 		t.Fatal(err)
@@ -57,8 +66,10 @@ func TestAtLeastOnceWhenAckNotPersisted(t *testing.T) {
 
 func TestCriticalDeliveredBeforeRecovery(t *testing.T) {
 	now := time.Unix(1730000000, 0).UTC()
-	crit := monitor.Event{Key: "host:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Kind: monitor.Alert, Level: monitor.Critical}
-	rec := monitor.Event{Key: "host:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Kind: monitor.Recovery, Level: monitor.Healthy}
+	k1, _ := monitor.Key("host", "prio-a")
+	k2, _ := monitor.Key("host", "prio-b")
+	crit := monitor.Event{Key: k1, Kind: monitor.Alert, Level: monitor.Critical, EmittedUnix: 1}
+	rec := monitor.Event{Key: k2, Kind: monitor.Recovery, Level: monitor.Healthy, EmittedUnix: 2}
 	q := &Queue{}
 	if err := q.EnqueueDeduped([]monitor.Event{rec, crit}, now); err != nil {
 		t.Fatal(err)
@@ -71,7 +82,7 @@ func TestCriticalDeliveredBeforeRecovery(t *testing.T) {
 
 func TestDedupeIdenticalPendingEvents(t *testing.T) {
 	now := time.Unix(1730000000, 0).UTC()
-	ev := monitor.Event{Key: "host:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", Kind: monitor.Alert, Level: monitor.Warning}
+	ev := testEvent(monitor.Alert, monitor.Warning, 50)
 	q := &Queue{}
 	if err := q.EnqueueDeduped([]monitor.Event{ev, ev}, now); err != nil {
 		t.Fatal(err)
