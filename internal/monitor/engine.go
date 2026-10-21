@@ -59,10 +59,12 @@ type Signal struct {
 }
 
 // Event is safe for future mock adapters: no raw hardware identifiers.
+// EmittedUnix is the emission generation used for outbox deduplication (stable per incident).
 type Event struct {
-	Key   string `json:"key"`
-	Kind  Kind   `json:"kind"`
-	Level Level  `json:"level"`
+	Key         string `json:"key"`
+	Kind        Kind   `json:"kind"`
+	Level       Level  `json:"level"`
+	EmittedUnix int64  `json:"emitted_unix"`
 }
 
 // Record stores only transition/dedupe metadata, never telemetry.
@@ -111,6 +113,11 @@ func normalizeOptions(o Options) (Options, error) {
 
 func validLevel(l Level) bool {
 	return l == Healthy || l == Warning || l == Critical || l == Unknown
+}
+
+// ValidSignalKey reports whether key is a privacy-safe hashed signal identifier.
+func ValidSignalKey(key string) bool {
+	return validKey(key)
 }
 
 func validKey(key string) bool {
@@ -203,7 +210,7 @@ func Decide(previous State, readings []Signal, now time.Time, opts Options) (Sta
 			old.HealthyStreak++
 			if old.HealthyStreak >= o.RecoverySamples {
 				next.Records[k] = Record{Level: Healthy}
-				events = append(events, Event{Key: k, Kind: Recovery, Level: Healthy})
+				events = append(events, Event{Key: k, Kind: Recovery, Level: Healthy, EmittedUnix: now.Unix()})
 			} else {
 				next.Records[k] = old
 			}
@@ -214,16 +221,26 @@ func Decide(previous State, readings []Signal, now time.Time, opts Options) (Sta
 		switch {
 		case !exists || old.Level != level:
 			r.LastEmittedAt = now.Unix()
-			events = append(events, Event{Key: k, Kind: Alert, Level: level})
+			events = append(events, Event{Key: k, Kind: Alert, Level: level, EmittedUnix: now.Unix()})
 		case now.Sub(time.Unix(old.LastEmittedAt, 0)) >= o.ReminderInterval:
 			r.LastEmittedAt = now.Unix()
-			events = append(events, Event{Key: k, Kind: Reminder, Level: level})
+			events = append(events, Event{Key: k, Kind: Reminder, Level: level, EmittedUnix: now.Unix()})
 		default:
 			r.LastEmittedAt = old.LastEmittedAt
 		}
 		next.Records[k] = r
 	}
 	return next, events, nil
+}
+
+// StateVersion is the supported on-disk monitor state schema version.
+func StateVersion() int {
+	return stateVersion
+}
+
+// ValidatePersistedState rejects snapshots that are present but not a supported schema.
+func ValidatePersistedState(s State) error {
+	return validatePersistedState(s)
 }
 
 // validatePersistedState rejects on-disk snapshots that are present but not a
