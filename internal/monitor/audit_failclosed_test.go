@@ -12,6 +12,22 @@ func enrichTopologyListOK(topo *zfs.TopologyReport, health string) {
 	topo.EnrichListHealth([]zfs.Pool{{Name: topo.Pools[0].Name, Health: health}})
 }
 
+func TestDetectSmartCompleteFlagsWithoutEvidenceUnknown(t *testing.T) {
+	report := deviceReportShell(baseTime)
+	report.InventoryCompleteness = device.ReportInventoryComplete
+	report.MappingCompleteness = device.ReportMappingComplete
+	report.SmartCompleteness = device.ReportSmartComplete
+	report.Inventory = nil
+	report.DeviceHealth = nil
+	signals, _, err := Detect(DetectionInput{Devices: report, DevicesOK: true}, nil, baseTime, DetectionOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signalLevel(signals, "host", "device-smart-coverage") != Unknown {
+		t.Fatalf("complete flags without evidence: %+v", signals)
+	}
+}
+
 func TestDetectEmptyDeviceReportCoverageUnknown(t *testing.T) {
 	report := deviceReportShell(baseTime)
 	report.InventoryCompleteness = ""

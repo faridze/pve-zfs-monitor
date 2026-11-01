@@ -19,11 +19,12 @@ func TestRenderParseRoundTripSchema2(t *testing.T) {
 			{Key: kPool, Level: monitor.Critical, Verified: true, ObservedAt: at},
 			{Key: kDev, Level: monitor.Unknown, Verified: false, ObservedAt: at},
 		},
-		CollectedAt:       at,
-		EvaluatedAt:       at,
-		MaxSignalAge:      time.Hour,
-		SmartCompleteness: SmartComplete,
-		EventsPending:     1,
+		CollectedAt:           at,
+		EvaluatedAt:           at,
+		MaxSignalAge:          time.Hour,
+		SmartCompleteness:     SmartComplete,
+		SMARTEvidenceVerified: true,
+		EventsPending:         1,
 	})
 	if err != nil {
 		t.Fatal(err)

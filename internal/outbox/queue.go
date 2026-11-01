@@ -195,6 +195,9 @@ func (q *Queue) LoadSnapshot(s Snapshot) error {
 func (q *Queue) Snapshot() Snapshot {
 	entries := append([]Entry(nil), q.entries...)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].CreatedAt < entries[j].CreatedAt })
+	if entries == nil {
+		entries = []Entry{}
+	}
 	return Snapshot{Version: snapshotVersion, Entries: entries}
 }
 

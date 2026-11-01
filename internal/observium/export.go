@@ -9,7 +9,12 @@ import (
 	"github.com/faridze/pve-zfs-monitor/internal/monitor"
 )
 
-const SchemaVersion = 2
+const (
+	SchemaVersion = 2
+
+	// defaultExportMaxSignalAge is applied when ExportInput.MaxSignalAge is zero (conservative freshness).
+	defaultExportMaxSignalAge = 10 * time.Minute
+)
 
 // SmartCompleteness mirrors device report completeness for export (no raw paths).
 type SmartCompleteness string
@@ -30,6 +35,8 @@ type ExportInput struct {
 	SmartCompleteness SmartCompleteness
 	CollectionFailed  bool
 	EventsPending     int
+	// SMARTEvidenceVerified is true only when device.HasSMARTCollectionEvidence succeeded at export time.
+	SMARTEvidenceVerified bool
 }
 
 // Summary is the versioned Observium application payload.
@@ -70,13 +77,19 @@ func BuildSummary(in ExportInput) (Summary, error) {
 	if len(in.Signals) > 512 {
 		return Summary{}, fmt.Errorf("too many signals")
 	}
+	smartCompleteness := in.SmartCompleteness
+	if smartCompleteness == SmartComplete && !in.SMARTEvidenceVerified {
+		smartCompleteness = SmartIncomplete
+	}
 	stale := false
-	if in.MaxSignalAge > 0 {
-		for _, s := range in.Signals {
-			if s.ObservedAt.IsZero() || in.EvaluatedAt.Sub(s.ObservedAt) > in.MaxSignalAge || s.ObservedAt.After(in.EvaluatedAt) {
-				stale = true
-				break
-			}
+	maxAge := in.MaxSignalAge
+	if maxAge <= 0 {
+		maxAge = defaultExportMaxSignalAge
+	}
+	for _, s := range in.Signals {
+		if s.ObservedAt.IsZero() || in.EvaluatedAt.Sub(s.ObservedAt) > maxAge || s.ObservedAt.After(in.EvaluatedAt) {
+			stale = true
+			break
 		}
 	}
 	var counts LevelCounts
@@ -141,7 +154,7 @@ func BuildSummary(in ExportInput) (Summary, error) {
 		hostWorst = monitor.Unknown
 		worst = monitor.Unknown
 	}
-	if stale || in.CollectionFailed || in.SmartCompleteness != SmartComplete {
+	if stale || in.CollectionFailed || smartCompleteness != SmartComplete {
 		allVerified = false
 	}
 	hostOverall := hostWorst
@@ -154,7 +167,7 @@ func BuildSummary(in ExportInput) (Summary, error) {
 		}
 	}
 	reportHealthy := !empty && !stale && !in.CollectionFailed &&
-		in.SmartCompleteness == SmartComplete && allVerified &&
+		smartCompleteness == SmartComplete && allVerified &&
 		worst == monitor.Healthy && verifiedCritical == 0
 
 	cf := 0
@@ -169,7 +182,7 @@ func BuildSummary(in ExportInput) (Summary, error) {
 		HostFullyVerified:     allVerified && !empty,
 		StaleObservation:      stale,
 		CollectionFailures:    cf,
-		SmartCompleteness:     in.SmartCompleteness,
+		SmartCompleteness:     smartCompleteness,
 		Counts:                counts,
 		PoolCounts:            pools,
 		VerifiedCriticalCount: verifiedCritical,
@@ -184,16 +197,20 @@ func SmartCompletenessFromDevice(report *device.DeviceReport, devicesOK bool) Sm
 	if !devicesOK || report == nil {
 		return SmartUnknownReport
 	}
-	switch report.SmartCompleteness {
-	case device.ReportSmartComplete:
-		return SmartComplete
-	case device.ReportSmartIncomplete:
-		return SmartIncomplete
-	case device.ReportSmartNotAttempted:
-		return SmartNotAttempted
-	default:
-		return SmartUnknownReport
+	if report.SmartCompleteness != device.ReportSmartComplete {
+		switch report.SmartCompleteness {
+		case device.ReportSmartIncomplete:
+			return SmartIncomplete
+		case device.ReportSmartNotAttempted:
+			return SmartNotAttempted
+		default:
+			return SmartUnknownReport
+		}
 	}
+	if !device.HasSMARTCollectionEvidence(report) {
+		return SmartIncomplete
+	}
+	return SmartComplete
 }
 
 const maxEntriesExport = 256

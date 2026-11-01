@@ -15,10 +15,14 @@ import (
 )
 
 const (
-	stateFileName = "state.json"
-	lockFileName  = "state.lock"
-	maxDocSize    = 256 << 10
+	stateFileName        = "state.json"
+	lockFileName         = "state.lock"
+	dispatchLockFileName = "dispatch.lock"
+	maxDocSize           = 256 << 10
 )
+
+// ErrDispatchBusy indicates another dispatcher holds the directory dispatch lock.
+var ErrDispatchBusy = errors.New("dispatch busy")
 
 // Store provides atomic monitor state + outbox persistence in one directory.
 type Store struct {
@@ -26,6 +30,10 @@ type Store struct {
 }
 
 func (s Store) withLock(fn func(dir int) error) error {
+	return s.withStateLock(fn)
+}
+
+func (s Store) withStateLock(fn func(dir int) error) error {
 	dir, err := openPrivateDirectory(s.Directory)
 	if err != nil {
 		return err
@@ -45,6 +53,31 @@ func (s Store) withLock(fn func(dir int) error) error {
 	}
 	defer syscall.Flock(lock, syscall.LOCK_UN)
 	return fn(dir)
+}
+
+func (s Store) withDispatchLock(fn func() error) error {
+	dir, err := openPrivateDirectory(s.Directory)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(dir)
+	lock, err := syscall.Openat(dir, dispatchLockFileName,
+		syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open dispatch lock: %w", err)
+	}
+	defer syscall.Close(lock)
+	if err := verifyPrivateRegular(lock); err != nil {
+		return fmt.Errorf("invalid dispatch lock: %w", err)
+	}
+	if err := syscall.Flock(lock, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return ErrDispatchBusy
+		}
+		return fmt.Errorf("dispatch lock busy: %w", err)
+	}
+	defer syscall.Flock(lock, syscall.LOCK_UN)
+	return fn()
 }
 
 func (s Store) Load() (Document, error) {

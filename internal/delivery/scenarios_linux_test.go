@@ -42,7 +42,8 @@ func TestScenarioMirrorDegradedObserviumNotFullyHealthy(t *testing.T) {
 	}
 	sum, err := observium.BuildSummary(observium.ExportInput{
 		Signals: signals, CollectedAt: now, EvaluatedAt: now,
-		MaxSignalAge: time.Hour, SmartCompleteness: observium.SmartComplete,
+		MaxSignalAge: time.Hour, SmartCompleteness: observium.SmartCompletenessFromDevice(report, true),
+		SMARTEvidenceVerified: device.HasSMARTCollectionEvidence(report),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,11 +107,19 @@ func TestScenarioTransportFailThenRetry(t *testing.T) {
 }
 
 func deviceReport(now time.Time) *device.DeviceReport {
+	passed := true
 	return &device.DeviceReport{
 		CollectedAt:           now.Format(time.RFC3339),
 		InventoryCompleteness: device.ReportInventoryComplete,
 		MappingCompleteness:   device.ReportMappingComplete,
 		SmartCompleteness:     device.ReportSmartComplete,
+		Inventory: []device.PhysicalIdentity{{
+			StableHardwareID: "synthetic-disk-a",
+		}},
+		DeviceHealth: []device.DeviceHealth{{
+			CollectionStatus: device.HealthCollected,
+			SmartPassed:      &passed,
+		}},
 	}
 }
 
@@ -122,6 +131,7 @@ func exportFromDetection(t *testing.T, in monitor.DetectionInput, detect monitor
 	sum, err := observium.BuildSummary(observium.ExportInput{
 		Signals: signals, CollectedAt: now, EvaluatedAt: now,
 		MaxSignalAge: time.Hour, SmartCompleteness: smart, EventsPending: pending,
+		SMARTEvidenceVerified: in.DevicesOK && in.Devices != nil && device.HasSMARTCollectionEvidence(in.Devices),
 	})
 	if err != nil {
 		t.Fatal(err)

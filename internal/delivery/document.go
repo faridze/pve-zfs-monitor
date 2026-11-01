@@ -22,7 +22,7 @@ type Document struct {
 func emptyFirstRunDocument() Document {
 	return Document{
 		FormatVersion: formatVersion2,
-		Outbox:        outbox.Snapshot{Version: outbox.SnapshotVersion},
+		Outbox:        outbox.Snapshot{Version: outbox.SnapshotVersion, Entries: []outbox.Entry{}},
 	}
 }
 
@@ -49,11 +49,24 @@ func decodeDocument(data []byte) (Document, error) {
 		return Document{}, fmt.Errorf("corrupt document: %w", err)
 	}
 	if meta.FormatVersion == formatVersion2 {
+		var envelope struct {
+			FormatVersion int             `json:"format_version"`
+			State         monitor.State   `json:"state"`
+			Outbox        json.RawMessage `json:"outbox"`
+		}
 		dec := json.NewDecoder(bytes.NewReader(trimmed))
 		dec.DisallowUnknownFields()
-		var doc Document
-		if err := dec.Decode(&doc); err != nil {
+		if err := dec.Decode(&envelope); err != nil {
 			return Document{}, fmt.Errorf("corrupt document: %w", err)
+		}
+		outboxSnap, err := outbox.DecodePersistedSnapshot(envelope.Outbox, true)
+		if err != nil {
+			return Document{}, err
+		}
+		doc := Document{
+			FormatVersion: formatVersion2,
+			State:         envelope.State,
+			Outbox:        outboxSnap,
 		}
 		return doc, validateDocument(doc, true)
 	}
@@ -79,7 +92,7 @@ func decodeDocument(data []byte) (Document, error) {
 	return Document{
 		FormatVersion: formatVersion2,
 		State:         st,
-		Outbox:        outbox.Snapshot{Version: outbox.SnapshotVersion},
+		Outbox:        outbox.Snapshot{Version: outbox.SnapshotVersion, Entries: []outbox.Entry{}},
 	}, nil
 }
 

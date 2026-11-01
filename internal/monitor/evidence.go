@@ -73,6 +73,9 @@ func deviceCoverageFromReport(report *device.DeviceReport) (Level, bool) {
 	}
 	switch report.SmartCompleteness {
 	case device.ReportSmartComplete:
+		if !device.HasSMARTCollectionEvidence(report) {
+			return Unknown, false
+		}
 		return Healthy, true
 	case device.ReportSmartIncomplete, device.ReportSmartNotAttempted:
 		return Unknown, false

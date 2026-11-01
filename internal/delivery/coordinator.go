@@ -14,6 +14,75 @@ type Coordinator struct {
 	Store Store
 }
 
+// DeliverNotifications delivers pending/retryable outbox entries and persists acknowledgments.
+// Transport runs outside the state lock; duplicate external delivery is possible if the process
+// crashes after transport success but before the durable acknowledgment is written.
+// Only one active dispatcher per state directory is allowed (dispatch.lock).
+func (c Coordinator) DeliverNotifications(hostLabel string, transport outbox.Transport, now time.Time) (int, error) {
+	if transport == nil {
+		return 0, errors.New("missing transport")
+	}
+	var delivered int
+	err := c.Store.withDispatchLock(func() error {
+		var ids []string
+		var msgs []outbox.Message
+		var formatErrs map[string]error
+		err := c.Store.withStateLock(func(dir int) error {
+			data, err := readFileAt(dir, stateFileName)
+			if err != nil {
+				return err
+			}
+			doc, err := decodeDocument(data)
+			if err != nil {
+				return err
+			}
+			q := &outbox.Queue{}
+			if err := q.LoadSnapshot(doc.Outbox); err != nil {
+				return err
+			}
+			q.CompactDelivered(now)
+			ids, msgs, formatErrs = q.EntryIDsForDelivery(hostLabel, now)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		var results []outbox.DeliveryResult
+		for i, id := range ids {
+			ctx, cancel := context.WithTimeout(context.Background(), outbox.TransportTimeout)
+			sendErr := transport.Send(ctx, msgs[i])
+			cancel()
+			results = append(results, outbox.DeliveryResult{ID: id, SendErr: sendErr})
+		}
+		for id, ferr := range formatErrs {
+			results = append(results, outbox.DeliveryResult{ID: id, SendErr: ferr})
+		}
+		return c.Store.withStateLock(func(dir int) error {
+			data, err := readFileAt(dir, stateFileName)
+			if err != nil {
+				return err
+			}
+			doc, err := decodeDocument(data)
+			if err != nil {
+				return err
+			}
+			q := &outbox.Queue{}
+			if err := q.LoadSnapshot(doc.Outbox); err != nil {
+				return err
+			}
+			delivered = q.ApplyDeliveryResults(results, now)
+			q.CompactDelivered(now)
+			doc.Outbox = q.Snapshot()
+			encoded, err := encodeDocument(doc)
+			if err != nil {
+				return err
+			}
+			return atomicWriteAt(dir, stateFileName, encoded)
+		})
+	})
+	return delivered, err
+}
+
 // AdvanceDetection runs DecideWithDetection and enqueues emitted events in one durable write.
 func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, opts monitor.Options, detect monitor.DetectionOptions) (monitor.State, []monitor.Event, error) {
 	if now.IsZero() {
@@ -21,7 +90,7 @@ func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, 
 	}
 	var resultState monitor.State
 	var resultEvents []monitor.Event
-	err := c.Store.withLock(func(dir int) error {
+	err := c.Store.withStateLock(func(dir int) error {
 		data, err := readFileAt(dir, stateFileName)
 		if err != nil {
 			return err
@@ -59,72 +128,6 @@ func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, 
 		return nil
 	})
 	return resultState, resultEvents, err
-}
-
-// DeliverNotifications delivers pending/retryable outbox entries and persists acknowledgments.
-// Transport runs outside the state lock; duplicate external delivery is possible if the process
-// crashes after transport success but before the durable acknowledgment is written.
-func (c Coordinator) DeliverNotifications(hostLabel string, transport outbox.Transport, now time.Time) (int, error) {
-	if transport == nil {
-		return 0, errors.New("missing transport")
-	}
-	var ids []string
-	var msgs []outbox.Message
-	var formatErrs map[string]error
-	err := c.Store.withLock(func(dir int) error {
-		data, err := readFileAt(dir, stateFileName)
-		if err != nil {
-			return err
-		}
-		doc, err := decodeDocument(data)
-		if err != nil {
-			return err
-		}
-		q := &outbox.Queue{}
-		if err := q.LoadSnapshot(doc.Outbox); err != nil {
-			return err
-		}
-		q.CompactDelivered(now)
-		ids, msgs, formatErrs = q.EntryIDsForDelivery(hostLabel, now)
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	var results []outbox.DeliveryResult
-	for i, id := range ids {
-		ctx, cancel := context.WithTimeout(context.Background(), outbox.TransportTimeout)
-		sendErr := transport.Send(ctx, msgs[i])
-		cancel()
-		results = append(results, outbox.DeliveryResult{ID: id, SendErr: sendErr})
-	}
-	for id, ferr := range formatErrs {
-		results = append(results, outbox.DeliveryResult{ID: id, SendErr: ferr})
-	}
-	delivered := 0
-	err = c.Store.withLock(func(dir int) error {
-		data, err := readFileAt(dir, stateFileName)
-		if err != nil {
-			return err
-		}
-		doc, err := decodeDocument(data)
-		if err != nil {
-			return err
-		}
-		q := &outbox.Queue{}
-		if err := q.LoadSnapshot(doc.Outbox); err != nil {
-			return err
-		}
-		delivered = q.ApplyDeliveryResults(results, now)
-		q.CompactDelivered(now)
-		doc.Outbox = q.Snapshot()
-		encoded, err := encodeDocument(doc)
-		if err != nil {
-			return err
-		}
-		return atomicWriteAt(dir, stateFileName, encoded)
-	})
-	return delivered, err
 }
 
 // PendingNotifications returns the count of pending/retryable intents.

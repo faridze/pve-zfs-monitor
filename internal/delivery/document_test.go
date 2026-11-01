@@ -50,4 +50,25 @@ func TestDecodeValidLegacyMigrates(t *testing.T) {
 	if doc.State.Version != monitor.StateVersion() || doc.Outbox.Version != outbox.SnapshotVersion {
 		t.Fatalf("migrate: %+v", doc)
 	}
+	if doc.Outbox.Entries == nil {
+		t.Fatal("expected explicit empty entries slice")
+	}
+}
+
+func TestDecodeV2MissingOutboxEntriesMigratesEmptyQueue(t *testing.T) {
+	raw := `{"format_version":2,"state":{"version":1,"last_run_unix":1730000000,"records":{}},"outbox":{"version":1}}`
+	doc, err := decodeDocument([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Outbox.Entries) != 0 {
+		t.Fatalf("expected empty queue, got %d", len(doc.Outbox.Entries))
+	}
+}
+
+func TestDecodeV2NullOutboxEntriesRejected(t *testing.T) {
+	raw := `{"format_version":2,"state":{"version":1,"records":{}},"outbox":{"version":1,"entries":null}}`
+	if _, err := decodeDocument([]byte(raw)); err == nil {
+		t.Fatal("expected null entries rejection")
+	}
 }
