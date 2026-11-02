@@ -245,6 +245,12 @@ func validateSummary(sum Summary) error {
 		if sum.SmartCompleteness != SmartComplete || sum.CollectionFailures > 0 || sum.Counts.Total == 0 {
 			return fmt.Errorf("report_fully_healthy inconsistent")
 		}
+		if sum.HostOverall != monitor.Healthy || !sum.HostFullyVerified {
+			return fmt.Errorf("report_fully_healthy inconsistent")
+		}
+	}
+	if sum.HostOverall == monitor.Unknown && sum.ReportFullyHealthy {
+		return fmt.Errorf("report_fully_healthy inconsistent")
 	}
 	if levelRank(sum.WorstLevel) < levelRankFromCounts(sum.Counts) {
 		return fmt.Errorf("worst_level inconsistent")

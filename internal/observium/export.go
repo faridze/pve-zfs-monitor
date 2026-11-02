@@ -161,6 +161,20 @@ func BuildSummary(in ExportInput) (Summary, error) {
 	if hostSignals == 0 {
 		hostOverall = monitor.Unknown
 	}
+	hostVerifiedHealthy := false
+	if hostSignals > 0 {
+		hostVerifiedHealthy = true
+		for _, s := range in.Signals {
+			scope, _, ok := strings.Cut(s.Key, ":")
+			if !ok || scope != "host" {
+				continue
+			}
+			if !s.Verified || s.Level != monitor.Healthy {
+				hostVerifiedHealthy = false
+				break
+			}
+		}
+	}
 	if verifiedCritical > 0 {
 		if levelRank(monitor.Critical) >= levelRank(worst) {
 			worst = monitor.Critical
@@ -168,7 +182,8 @@ func BuildSummary(in ExportInput) (Summary, error) {
 	}
 	reportHealthy := !empty && !stale && !in.CollectionFailed &&
 		smartCompleteness == SmartComplete && allVerified &&
-		worst == monitor.Healthy && verifiedCritical == 0
+		worst == monitor.Healthy && verifiedCritical == 0 &&
+		hostOverall == monitor.Healthy && hostVerifiedHealthy
 
 	cf := 0
 	if in.CollectionFailed {

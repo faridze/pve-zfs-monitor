@@ -8,6 +8,7 @@ import (
 
 	"github.com/faridze/pve-zfs-monitor/internal/monitor"
 	"github.com/faridze/pve-zfs-monitor/internal/outbox"
+	"github.com/faridze/pve-zfs-monitor/internal/persistjson"
 )
 
 const formatVersion2 = 2
@@ -49,6 +50,9 @@ func decodeDocument(data []byte) (Document, error) {
 		return Document{}, fmt.Errorf("corrupt document: %w", err)
 	}
 	if meta.FormatVersion == formatVersion2 {
+		if err := persistjson.ValidateFormatV2Envelope(trimmed); err != nil {
+			return Document{}, fmt.Errorf("corrupt document: %w", err)
+		}
 		var envelope struct {
 			FormatVersion int             `json:"format_version"`
 			State         monitor.State   `json:"state"`
@@ -76,6 +80,9 @@ func decodeDocument(data []byte) (Document, error) {
 	// Legacy P2-B state file (no format_version).
 	if bytes.Equal(trimmed, []byte("{}")) {
 		return Document{}, errors.New("invalid legacy state")
+	}
+	if err := persistjson.ValidateLegacyStateObject(trimmed); err != nil {
+		return Document{}, fmt.Errorf("corrupt legacy state: %w", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	dec.DisallowUnknownFields()

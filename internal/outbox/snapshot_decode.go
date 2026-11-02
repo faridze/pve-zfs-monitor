@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+
+	"github.com/faridze/pve-zfs-monitor/internal/persistjson"
 )
 
 // DecodePersistedSnapshot validates on-disk outbox JSON.
@@ -15,6 +17,9 @@ func DecodePersistedSnapshot(raw json.RawMessage, persisted bool) (Snapshot, err
 			return Snapshot{}, errors.New("missing outbox")
 		}
 		return Snapshot{Version: snapshotVersion, Entries: []Entry{}}, nil
+	}
+	if err := persistjson.ValidateOutboxObject(raw); err != nil {
+		return Snapshot{}, err
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
@@ -30,9 +35,6 @@ func DecodePersistedSnapshot(raw json.RawMessage, persisted bool) (Snapshot, err
 	}
 	entriesRaw, hasEntries := fields["entries"]
 	if !hasEntries {
-		if persisted {
-			return Snapshot{Version: snapshotVersion, Entries: []Entry{}}, nil
-		}
 		return Snapshot{Version: snapshotVersion, Entries: []Entry{}}, nil
 	}
 	if bytes.Equal(bytes.TrimSpace(entriesRaw), []byte("null")) {

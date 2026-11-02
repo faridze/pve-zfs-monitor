@@ -36,7 +36,13 @@ P2-B `FileStore.Advance()` persisted dedupe state only. P3 combines monitor stat
 
 **Dedupe:** outbox logical IDs include `emitted_unix` from `monitor.Event` so a delivered alert does not block a new alert after recovery. Only pending and retryable failed entries suppress duplicates.
 
+**Concurrent delivery:** `dispatch.lock` (nonblocking `flock`) serializes active dispatchers per state directory. Transport still runs outside `state.lock`; a second dispatcher receives `ErrDispatchBusy` instead of duplicate sends. Process exit releases the dispatch lock; crash after send but before ack remains at-least-once.
+
+**SMART export:** `device.HasSMARTCollectionEvidence` is required before Observium export or monitor coverage treats SMART as verified. `ExportInput.SMARTEvidenceVerified` must be set only when that helper succeeds.
+
 **Retention:** delivered entries older than `DeliveredRetention` (48h) are compacted before enqueue/delivery. Pending, retryable, and terminal undelivered entries are never silently dropped.
+
+**Persisted JSON:** v2 documents and outbox objects are validated with duplicate-key and trailing-document checks; unknown outbox fields (including typos like `entires`) are rejected; missing `entries` on a version-only outbox migrates to an explicit empty queue.
 
 **Ordering:** deliverable entries sort by severity (Critical alert first, then Warning, Unknown, Reminder, Recovery) then age, so a pending Critical is sent before a later Recovery.
 

@@ -5,7 +5,23 @@ import (
 
 	"github.com/faridze/pve-zfs-monitor/internal/monitor"
 	"github.com/faridze/pve-zfs-monitor/internal/outbox"
+	"github.com/faridze/pve-zfs-monitor/internal/persistjson"
 )
+
+func TestEncodeDecodeRoundTripStrictJSON(t *testing.T) {
+	doc := emptyFirstRunDocument()
+	doc.State = monitor.State{Version: monitor.StateVersion(), Records: map[string]monitor.Record{}}
+	data, err := encodeDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistjson.ValidateFormatV2Envelope(data); err != nil {
+		t.Fatalf("validate: %v data=%s", err, string(data))
+	}
+	if _, err := decodeDocument(data); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestDecodeAbsentFileIsFirstRun(t *testing.T) {
 	doc, err := decodeDocument(nil)
