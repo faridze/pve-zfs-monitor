@@ -27,6 +27,16 @@ Use on a **disposable Proxmox VE 8/9 VM** with VM snapshot before/after. **Fail*
 - [ ] `topology --json` and `devices --json` complete without secrets in output
 - [ ] Commands respect timeouts; no hung processes
 
+## P4-B orchestration (lab single-run)
+
+Reference: [lab-orchestration.md](lab-orchestration.md)
+
+- [ ] Lab state dir pre-created at `0700`, not production path
+- [ ] `monitor run-once --lab --state-dir … --delivery none --json` persists `state.json`
+- [ ] `--delivery fake` shows simulated delivery counts only (no real mail)
+- [ ] Exit codes 0 / 2 / 3 / 64 match documented overall status
+- [ ] Concurrent manual runs: one succeeds or lock error (no corrupt state)
+
 ## Observium track
 
 Reference: [observium-validation.md](observium-validation.md)
