@@ -62,16 +62,16 @@ func TestScenarioRecoveryTwoSamples(t *testing.T) {
 	c := Coordinator{Store: Store{Directory: dir}}
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	bad := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "FAULTED"}}}
-	_, _, err := c.AdvanceDetection(bad, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+	_, _, _, err := c.AdvanceDetection(bad, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	good := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "ONLINE"}}}
-	_, _, err = c.AdvanceDetection(good, now.Add(time.Minute), monitor.Options{MaxAge: time.Hour, RecoverySamples: 2}, monitor.DetectionOptions{})
+	_, _, _, err = c.AdvanceDetection(good, now.Add(time.Minute), monitor.Options{MaxAge: time.Hour, RecoverySamples: 2}, monitor.DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, events, err := c.AdvanceDetection(good, now.Add(2*time.Minute), monitor.Options{MaxAge: time.Hour, RecoverySamples: 2}, monitor.DetectionOptions{})
+	_, events, _, err := c.AdvanceDetection(good, now.Add(2*time.Minute), monitor.Options{MaxAge: time.Hour, RecoverySamples: 2}, monitor.DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestScenarioTransportFailThenRetry(t *testing.T) {
 	c := Coordinator{Store: Store{Directory: dir}}
 	now := time.Unix(1730000000, 0).UTC()
 	in := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "DEGRADED"}}}
-	_, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+	_, _, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestScenarioRestartBeforeDelivery(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	c := Coordinator{Store: Store{Directory: dir}}
 	in := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "DEGRADED"}}}
-	_, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+	_, _, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestScenarioMultipleFailuresSingleAdvance(t *testing.T) {
 			{Name: "p2", Health: "FAULTED"},
 		},
 	}
-	_, events, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+	_, events, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
 	if err != nil || len(events) < 2 {
 		t.Fatalf("events=%+v err=%v", events, err)
 	}

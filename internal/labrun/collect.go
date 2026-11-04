@@ -2,7 +2,6 @@ package labrun
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/faridze/pve-zfs-monitor/internal/device"
@@ -35,7 +34,7 @@ func BuildDetectionInput(ctx context.Context, c Collectors) (monitor.DetectionIn
 	cancel()
 	poolsOK := poolErr == nil
 	if poolErr != nil {
-		failures = append(failures, "pools: "+poolErr.Error())
+		failures = append(failures, CollectionCategoryPools)
 	}
 
 	topoCtx, cancel := context.WithTimeout(ctx, c.PoolTimeout)
@@ -43,7 +42,7 @@ func BuildDetectionInput(ctx context.Context, c Collectors) (monitor.DetectionIn
 	cancel()
 	topoOK := topoErr == nil
 	if topoErr != nil {
-		failures = append(failures, "topology: "+topoErr.Error())
+		failures = append(failures, CollectionCategoryTopology)
 	} else if topo != nil && poolsOK {
 		enrichTopologyHealth(topo, pools)
 	}
@@ -53,7 +52,7 @@ func BuildDetectionInput(ctx context.Context, c Collectors) (monitor.DetectionIn
 	cancel()
 	devicesOK := devErr == nil
 	if devErr != nil {
-		failures = append(failures, "devices: "+devErr.Error())
+		failures = append(failures, CollectionCategoryDevices)
 	}
 
 	in := monitor.DetectionInput{
@@ -88,15 +87,6 @@ func DefaultMonitorOptions() (monitor.Options, monitor.DetectionOptions) {
 		}, monitor.DetectionOptions{
 			MaxReportAge: 10 * time.Minute,
 		}
-}
-
-// SignalSummary runs Detect for reporting only (after persistence).
-func SignalSummary(in monitor.DetectionInput, baselines *monitor.Baselines, now time.Time, detect monitor.DetectionOptions) ([]monitor.Signal, error) {
-	signals, _, err := monitor.Detect(in, baselines, now, detect)
-	if err != nil {
-		return nil, fmt.Errorf("signal summary: %w", err)
-	}
-	return signals, nil
 }
 
 func evalNow(c Collectors) time.Time {

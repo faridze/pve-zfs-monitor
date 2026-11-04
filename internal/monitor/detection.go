@@ -82,16 +82,22 @@ func Detect(in DetectionInput, prev *Baselines, observedAt time.Time, opts Detec
 
 // DecideWithDetection runs Detect then Decide and copies baselines into state.
 func DecideWithDetection(previous State, in DetectionInput, now time.Time, opts Options, detectOpts DetectionOptions) (State, []Event, error) {
+	next, events, _, err := DecideWithDetectionSignals(previous, in, now, opts, detectOpts)
+	return next, events, err
+}
+
+// DecideWithDetectionSignals runs Detect once, then Decide, returning the same readings used for decisions.
+func DecideWithDetectionSignals(previous State, in DetectionInput, now time.Time, opts Options, detectOpts DetectionOptions) (State, []Event, []Signal, error) {
 	readings, baselines, err := Detect(in, previous.Baselines, now, detectOpts)
 	if err != nil {
-		return State{}, nil, err
+		return State{}, nil, nil, err
 	}
 	next, events, err := Decide(previous, readings, now, opts)
 	if err != nil {
-		return State{}, nil, err
+		return State{}, nil, nil, err
 	}
 	next.Baselines = baselines
-	return next, events, nil
+	return next, events, readings, nil
 }
 
 func cloneBaselines(prev *Baselines) *Baselines {

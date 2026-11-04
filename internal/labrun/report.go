@@ -25,7 +25,7 @@ type RunOnceReport struct {
 	EventsEmittedCount    int           `json:"events_emitted_count"`
 	PendingNotifications  int           `json:"pending_notifications"`
 	SimulatedDeliveries   int           `json:"simulated_deliveries"`
-	SimulatedAck          bool          `json:"simulated_acknowledgment"`
+	SimulatedAck          bool          `json:"simulated_acknowledgment,omitempty"`
 	CollectionFailures    []string      `json:"collection_failures,omitempty"`
 	StatePersisted        bool          `json:"state_persisted"`
 	AtLeastOnceLimitation string        `json:"at_least_once_limitation,omitempty"`
@@ -65,6 +65,17 @@ func summarizeSignals(signals []monitor.Signal) (overall monitor.Level, crit, wa
 		}
 	}
 	return overall, crit, warn, unk, healthy
+}
+
+// applyCollectionFailuresToOverall prevents a false Healthy summary when collection failed.
+func applyCollectionFailuresToOverall(overall monitor.Level, failures []string) monitor.Level {
+	if len(failures) == 0 {
+		return overall
+	}
+	if overall == monitor.Healthy {
+		return monitor.Unknown
+	}
+	return overall
 }
 
 func levelRank(l monitor.Level) int {

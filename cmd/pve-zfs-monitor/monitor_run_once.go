@@ -25,7 +25,7 @@ func runMonitorRunOnce(cfg runtimeConfig, args []string, stdout, stderr io.Write
 		fmt.Fprintln(stderr, err.Error())
 		return 64
 	}
-	if err := labrun.ValidateLabStateDir(opts.stateDir); err != nil {
+	if err := labrun.ValidateLabAuthorization(opts.stateDir); err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 64
 	}

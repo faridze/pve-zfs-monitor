@@ -31,6 +31,9 @@ func TestMonitorRunOnceCLINoneDelivery(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := labrun.WriteLabMarker(dir); err != nil {
+		t.Fatal(err)
+	}
 	cfg := runtimeConfig{
 		listPools: func(ctx context.Context) ([]zfs.Pool, error) {
 			return []zfs.Pool{{Name: "p1", Health: "DEGRADED"}}, nil

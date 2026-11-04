@@ -18,11 +18,14 @@ func RunOnce(ctx context.Context, labMode bool, stateDir string, mode DeliveryMo
 	if !labMode {
 		return RunOnceReport{}, errors.New("lab mode must be explicitly enabled")
 	}
-	if err := ValidateLabStateDir(stateDir); err != nil {
-		return RunOnceReport{}, err
-	}
 	if mode == "" {
 		return RunOnceReport{}, errors.New("delivery mode required")
+	}
+	if _, err := ParseDeliveryMode(string(mode)); err != nil {
+		return RunOnceReport{}, err
+	}
+	if err := ValidateLabAuthorization(stateDir); err != nil {
+		return RunOnceReport{}, err
 	}
 	if hostLabel == "" {
 		hostLabel = "lab"
@@ -39,38 +42,35 @@ func RunOnce(ctx context.Context, labMode bool, stateDir string, mode DeliveryMo
 	opts, detectOpts := DefaultMonitorOptions()
 
 	coord := delivery.Coordinator{Store: delivery.Store{Directory: stateDir}}
-	state, events, err := coord.AdvanceDetection(in, now, opts, detectOpts)
+	_, events, signals, err := coord.AdvanceDetection(in, now, opts, detectOpts)
 	if err != nil {
 		return RunOnceReport{
 			Lab: true, DeliveryMode: string(mode), CollectionFailures: failures,
 			StatePersisted: false,
 		}, fmt.Errorf("advance detection: %w", err)
 	}
-	signals, err := SignalSummary(in, state.Baselines, now, detectOpts)
-	if err != nil {
-		return RunOnceReport{}, err
-	}
 	overall, crit, warn, unk, healthy := summarizeSignals(signals)
+	overall = applyCollectionFailuresToOverall(overall, failures)
+
+	report := RunOnceReport{
+		Lab:                true,
+		DeliveryMode:       string(mode),
+		Overall:            overall,
+		VerifiedCritical:   crit,
+		VerifiedWarning:    warn,
+		UnknownSignals:     unk,
+		HealthySignals:     healthy,
+		EventsEmitted:      safeEvents(events),
+		EventsEmittedCount: len(events),
+		CollectionFailures: failures,
+		StatePersisted:     true,
+	}
 
 	pending, err := coord.PendingNotifications()
 	if err != nil {
-		return RunOnceReport{}, err
+		return report, fmt.Errorf("pending notifications: %w", err)
 	}
-
-	report := RunOnceReport{
-		Lab:                  true,
-		DeliveryMode:         string(mode),
-		Overall:              overall,
-		VerifiedCritical:     crit,
-		VerifiedWarning:      warn,
-		UnknownSignals:       unk,
-		HealthySignals:       healthy,
-		EventsEmitted:        safeEvents(events),
-		EventsEmittedCount:   len(events),
-		PendingNotifications: pending,
-		CollectionFailures:   failures,
-		StatePersisted:       true,
-	}
+	report.PendingNotifications = pending
 
 	switch mode {
 	case DeliveryNone:
@@ -82,8 +82,13 @@ func RunOnce(ctx context.Context, labMode bool, stateDir string, mode DeliveryMo
 			return report, fmt.Errorf("simulated delivery: %w", err)
 		}
 		report.SimulatedDeliveries = n
-		report.SimulatedAck = n > 0 || pending == 0
-		pendingAfter, _ := coord.PendingNotifications()
+		if n > 0 {
+			report.SimulatedAck = true
+		}
+		pendingAfter, err := coord.PendingNotifications()
+		if err != nil {
+			return report, fmt.Errorf("pending after simulated delivery: %w", err)
+		}
 		report.PendingNotifications = pendingAfter
 		return report, nil
 	default:

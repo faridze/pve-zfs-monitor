@@ -19,6 +19,9 @@ func labDir(t *testing.T) string {
 	if err := os.Chmod(d, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := WriteLabMarker(d); err != nil {
+		t.Fatal(err)
+	}
 	return d
 }
 
@@ -236,4 +239,54 @@ func TestValidateLabStateDirMode(t *testing.T) {
 	if err := ValidateLabStateDir(d); err == nil {
 		t.Fatal("expected mode error")
 	}
+}
+
+func TestRunOnceReportsCounterIncreaseAfterPersistedBaseline(t *testing.T) {
+	dir := labDir(t)
+	now := time.Now().UTC()
+	topo := loadTopo("mirror_healthy.txt")
+	baseCollectors := func(top *zfs.TopologyReport) Collectors {
+		return Collectors{
+			ListPools: func(context.Context) ([]zfs.Pool, error) {
+				return []zfs.Pool{{Name: "rpool", Health: "ONLINE"}}, nil
+			},
+			CollectTopology: func(context.Context) (*zfs.TopologyReport, error) { return top, nil },
+			CollectDevices:  func(context.Context) (*device.DeviceReport, error) { return deviceShell(now), nil },
+			PoolTimeout:     time.Second,
+			Now:             func() time.Time { return now },
+		}
+	}
+	if _, err := RunOnce(context.Background(), true, dir, DeliveryNone, baseCollectors(topo), "lab"); err != nil {
+		t.Fatal(err)
+	}
+	bumped := loadTopo("mirror_healthy.txt")
+	bumpLeafReadErrors(bumped, 5)
+	report, err := RunOnce(context.Background(), true, dir, DeliveryNone, baseCollectors(bumped), "lab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Overall != monitor.Warning && report.VerifiedWarning == 0 {
+		t.Fatalf("expected counter increase warning in same-detection report: %+v", report)
+	}
+}
+
+func bumpLeafReadErrors(topo *zfs.TopologyReport, delta uint64) {
+	if len(topo.Pools) == 0 || topo.Pools[0].Root == nil {
+		return
+	}
+	bumpFirstLeafRead(topo.Pools[0].Root, delta)
+}
+
+func bumpFirstLeafRead(node *zfs.VdevNode, delta uint64) {
+	if node == nil {
+		return
+	}
+	if len(node.Children) == 0 {
+		if node.ReadErrors != nil {
+			v := *node.ReadErrors + delta
+			node.ReadErrors = &v
+		}
+		return
+	}
+	bumpFirstLeafRead(&node.Children[0], delta)
 }

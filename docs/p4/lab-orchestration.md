@@ -27,14 +27,27 @@ Human-readable output is used when `--json` is omitted.
 
 ```bash
 install -d -m 0700 /var/lib/pve-zfs-monitor-lab/state
+printf '%s' 'pve-zfs-monitor-lab-v1
+' > /var/lib/pve-zfs-monitor-lab/state/.pve-zfs-monitor-lab
+chmod 600 /var/lib/pve-zfs-monitor-lab/state/.pve-zfs-monitor-lab
 # Do not reuse production paths. Do not chmod production directories from this doc.
+```
+
+The CLI refuses to write state or perform simulated delivery unless the directory contains a **lab authorization marker** file named `.pve-zfs-monitor-lab` with exact content `pve-zfs-monitor-lab-v1` (newline-terminated). Production-style private directories without this marker are rejected fail-closed.
+
+Alternatively, after creating the directory:
+
+```bash
+# from a Go test helper or future lab setup script:
+# labrun.WriteLabMarker("/var/lib/pve-zfs-monitor-lab/state")
 ```
 
 The store validates:
 
-- Path is absolute and clean (no `.` / `..` segments).
+- Path is absolute and clean (no `.` / `..` segments); directory must not be a symlink.
 - Directory exists before the run (the CLI does **not** create lab state roots).
 - Mode `0700` and owner matches process EUID (same rules as `internal/delivery`).
+- Lab marker present, regular file, mode `0600`, exact content match.
 
 Files created inside the directory (by the durable store): `state.json`, `state.lock`, `dispatch.lock`.
 
@@ -52,7 +65,7 @@ Files created inside the directory (by the durable store): `state.json`, `state.
 - `overall`, `verified_critical`, `verified_warning`, `unknown_signals`, `healthy_signals`
 - `events_emitted` (key/kind/level/emitted_unix only — no serials or device paths)
 - `pending_notifications`, `simulated_deliveries`, `simulated_acknowledgment`
-- `collection_failures` (aggregate collector errors)
+- `collection_failures` (bounded categories: `pools`, `topology`, `devices` — no raw error text)
 - `state_persisted`
 - `at_least_once_limitation` (present when `--delivery fake`)
 
@@ -82,6 +95,9 @@ Files created inside the directory (by the durable store): `state.json`, `state.
 CGO_ENABLED=0 go build -trimpath -o /tmp/pve-zfs-monitor ./cmd/pve-zfs-monitor
 
 install -d -m 0700 /var/lib/pve-zfs-monitor-lab/state
+printf '%s' 'pve-zfs-monitor-lab-v1
+' > /var/lib/pve-zfs-monitor-lab/state/.pve-zfs-monitor-lab
+chmod 600 /var/lib/pve-zfs-monitor-lab/state/.pve-zfs-monitor-lab
 
 /tmp/pve-zfs-monitor monitor run-once \
   --lab \
