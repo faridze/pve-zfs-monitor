@@ -11,7 +11,8 @@ Lightweight Go-based ZFS and NVMe health monitoring for Proxmox VE, with planned
 - `topology --json` for read-only ZFS vdev topology, error counters and scrub metadata (diagnostic).
 - `devices --json` for block inventory, ZFS-to-disk correlation and read-only SMART/NVMe health (diagnostic).
 - Offline `internal/monitor` alert transition/deduplication logic (not wired into the CLI, no delivery) — see [P2 readiness](docs/p2-alert-readiness.md).
-- P3 (Draft, offline tests): [Observium schema v2 export](docs/p3-observium-mail.md) (`internal/observium`), atomic state+outbox (`internal/delivery` on Linux), and mail formatting / `FakeTransport` (`internal/outbox`). System mail adapter is a disabled prototype; Observium server PHP under `examples/observium/` is experimental and not lab-verified.
+- Offline alert decision engine (`internal/monitor`), Observium schema v2 export (`internal/observium`), durable outbox (`internal/delivery`, `internal/outbox` on Linux), and mail formatting with `FakeTransport` — see [P3 architecture](docs/p3-observium-mail.md). **Not lab-verified** on live Observium or Proxmox mail; system mail remains a disabled prototype.
+- **P4 (planning):** executable lab validation procedures under [docs/p4/](docs/p4/integration-inventory.md) — no production deployment in doc-only phase.
 - No daemon, no port, no automatic polling or notification, no disk or pool changes.
 - Zero third-party Go dependencies.
 
@@ -38,7 +39,7 @@ See [architecture and phased delivery](docs/architecture.md) and [agent instruct
 1. Individual mirror member mapping, scrub details and NVMe health with fixtures.
 2. Observium Unix Agent integration and an explicitly validated ingestion path.
 3. Proxmox system-mail notifications and optional standalone SMTP with deduplication.
-4. Debian packaging, safe installation and systemd timer, tested on staging Proxmox VE 8/9.
+4. **P4 lab integration validation** ([docs/p4/](docs/p4/integration-inventory.md)) on disposable PVE/Observium VMs; then Debian packaging, safe installation and systemd timer ([architecture](docs/architecture.md)).
 
 **Safety:** inspect the PR and test on a non-production Proxmox node before any deployment. See [SECURITY.md](SECURITY.md).
 
