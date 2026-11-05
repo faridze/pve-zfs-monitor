@@ -32,7 +32,7 @@ func TestCoordinatorAdvanceAndDeliverSurvivesRestart(t *testing.T) {
 		PoolsOK: true,
 		Pools:   []zfs.Pool{{Name: "p1", Health: "DEGRADED"}},
 	}
-	_, events, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+	_, events, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
 	if err != nil || len(events) == 0 {
 		t.Fatalf("advance: events=%+v err=%v", events, err)
 	}
@@ -108,7 +108,7 @@ func TestCorruptPersistedStateBlocksAdvanceAndDelivery(t *testing.T) {
 		c := Coordinator{Store: Store{Directory: sub}}
 		now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 		in := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "DEGRADED"}}}
-		_, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
+		_, _, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{})
 		if err == nil {
 			t.Fatalf("case %d: advance should fail", i)
 		}

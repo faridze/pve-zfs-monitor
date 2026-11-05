@@ -32,7 +32,7 @@ func TestCorruptPersistedFileNotOverwrittenOnLoadAdvanceDeliver(t *testing.T) {
 	c := Coordinator{Store: store}
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	in := monitor.DetectionInput{PoolsOK: true, Pools: []zfs.Pool{{Name: "p1", Health: "DEGRADED"}}}
-	if _, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{}); err == nil {
+	if _, _, _, err := c.AdvanceDetection(in, now, monitor.Options{MaxAge: time.Hour}, monitor.DetectionOptions{}); err == nil {
 		t.Fatal("advance should fail")
 	}
 	if _, err := c.DeliverNotifications("lab", &outbox.FakeTransport{}, now); err == nil {

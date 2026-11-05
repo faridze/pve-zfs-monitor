@@ -20,8 +20,8 @@ type Coordinator struct {
 	Store Store
 }
 
-func (c Coordinator) AdvanceDetection(monitor.DetectionInput, time.Time, monitor.Options, monitor.DetectionOptions) (monitor.State, []monitor.Event, error) {
-	return monitor.State{}, nil, errors.New("delivery store requires linux")
+func (c Coordinator) AdvanceDetection(monitor.DetectionInput, time.Time, monitor.Options, monitor.DetectionOptions) (monitor.State, []monitor.Event, []monitor.Signal, error) {
+	return monitor.State{}, nil, nil, errors.New("delivery store requires linux")
 }
 
 func (c Coordinator) DeliverNotifications(string, outbox.Transport, time.Time) (int, error) {

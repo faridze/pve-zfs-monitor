@@ -41,7 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func runWith(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|topology|devices|version|update|rollback|install-release> [flags]")
+		fmt.Fprintln(stdout, "Usage: pve-zfs-monitor <status|check|topology|devices|monitor|version|update|rollback|install-release> [flags]")
+		fmt.Fprintln(stdout, "Lab: pve-zfs-monitor monitor run-once --lab --state-dir /absolute/lab/path --delivery none|fake [--json]")
 		return 0
 	}
 	if args[0] == "version" {
@@ -61,6 +62,13 @@ func runWith(cfg runtimeConfig, args []string, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "devices" {
 		return runDevices(cfg, args, stdout, stderr)
+	}
+	if args[0] == "monitor" {
+		if len(args) < 2 || args[1] != "run-once" {
+			fmt.Fprintln(stderr, "usage: monitor run-once --lab --state-dir PATH --delivery none|fake [--json]")
+			return 64
+		}
+		return runMonitorRunOnce(cfg, args[2:], stdout, stderr)
 	}
 	if args[0] != "status" && args[0] != "check" {
 		fmt.Fprintln(stderr, "unknown command (see --help)")

@@ -84,12 +84,14 @@ func (c Coordinator) DeliverNotifications(hostLabel string, transport outbox.Tra
 }
 
 // AdvanceDetection runs DecideWithDetection and enqueues emitted events in one durable write.
-func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, opts monitor.Options, detect monitor.DetectionOptions) (monitor.State, []monitor.Event, error) {
+// Signals returned are from the same Detect pass used for persistence (not a second evaluation).
+func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, opts monitor.Options, detect monitor.DetectionOptions) (monitor.State, []monitor.Event, []monitor.Signal, error) {
 	if now.IsZero() {
-		return monitor.State{}, nil, errors.New("invalid time")
+		return monitor.State{}, nil, nil, errors.New("invalid time")
 	}
 	var resultState monitor.State
 	var resultEvents []monitor.Event
+	var resultSignals []monitor.Signal
 	err := c.Store.withStateLock(func(dir int) error {
 		data, err := readFileAt(dir, stateFileName)
 		if err != nil {
@@ -99,7 +101,7 @@ func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, 
 		if err != nil {
 			return err
 		}
-		next, events, err := monitor.DecideWithDetection(doc.State, in, now, opts, detect)
+		next, events, signals, err := monitor.DecideWithDetectionSignals(doc.State, in, now, opts, detect)
 		if err != nil {
 			return err
 		}
@@ -125,9 +127,10 @@ func (c Coordinator) AdvanceDetection(in monitor.DetectionInput, now time.Time, 
 		}
 		resultState = next
 		resultEvents = events
+		resultSignals = signals
 		return nil
 	})
-	return resultState, resultEvents, err
+	return resultState, resultEvents, resultSignals, err
 }
 
 // PendingNotifications returns the count of pending/retryable intents.
